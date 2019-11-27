@@ -1,10 +1,4 @@
 /* SDSLib 2.0 -- A C dynamic strings library
- *
- * Copyright (c) 2006-2015, Salvatore Sanfilippo <antirez at gmail dot com>
- * Copyright (c) 2015, Oran Agra
- * Copyright (c) 2015, Redis Labs, Inc
- * All rights reserved.
- *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  *
@@ -33,6 +27,7 @@
 #ifndef __SDS_H
 #define __SDS_H
 
+//进行扩展字符串时最大的
 #define SDS_MAX_PREALLOC (1024*1024)
 const char *SDS_NOINIT;
 
@@ -42,8 +37,15 @@ const char *SDS_NOINIT;
 
 typedef char *sds;
 
-/* Note: sdshdr5 is never used, we just access the flags byte directly.
- * However is here to document the layout of type 5 SDS strings. */
+/* Note: sdshdr5 is never used, we just access the flags byte directly. However is here to document the layout of type 5 SDS strings. */
+/* sdshdr有好几个类别，它们分别是：sdshdr5，sdshdr8，sdshdr16，sdshdr32，sdshdr64，其中sdshdr5是不使用的 */
+/* 这五个结构体中，len表示字符串的长度，alloc表示buf指针分配空间的大小，flags表示该字符串的类型(sdshdr5，sdshdr8，sdshdr16，sdshdr32，sdshdr64),是由flags的低三位表示 */
+/* 注意一个小细节：attribute ((packed))，这一段代码的作用是取消编译阶段的内存优化对齐功能。
+	例如：struct aa {char a; int b;}; sizeof(aa) == 8;
+	但是struct attribute ((packed)) aa {char a; int b;}; sizeof(aa) == 5;
+	这个很重要，redis源码中不是直接对sdshdr某一个类型操作，往往参数都是sds，而sds就是结构体中的buf，
+	在后面的源码分析中，你可能会经常看见s[-1]这种魔法一般的操作，而按照sdshdr内存分布s[-1]就是sdshdr中flags变量，由此可以获取到该sds指向的字符串的类型 
+*/
 struct __attribute__ ((__packed__)) sdshdr5 {
     unsigned char flags; /* 3 lsb of type, and 5 msb of string length */
     char buf[];
@@ -73,19 +75,36 @@ struct __attribute__ ((__packed__)) sdshdr64 {
     char buf[];
 };
 
+/* 字符串类型编码 字符串类型有5中类型 同时占据低3位 */
 #define SDS_TYPE_5  0
 #define SDS_TYPE_8  1
 #define SDS_TYPE_16 2
 #define SDS_TYPE_32 3
 #define SDS_TYPE_64 4
+
+/* 获取对应字符串类型的掩码值 */
 #define SDS_TYPE_MASK 7
+
+/* 字符串类型占据的位数 */
 #define SDS_TYPE_BITS 3
+
+/* C 语言中的宏定义##操作符 */
+/* 实例 SDS_HDR_VAR(8,s); 对应宏定义翻译的产物  struct sdshdr8 *sh = (void*)((s)-(sizeof(struct sdshdr##T))); */
+/* 上述实例就可以根据指向buf的sds变量s得到sdshdr8的指针          即创建对应的一个sdshdr8类型变量指针 */
 #define SDS_HDR_VAR(T,s) struct sdshdr##T *sh = (void*)((s)-(sizeof(struct sdshdr##T)));
+/* 同上方的函数类似，根据指向buf的sds变量s得到sdshdr的指针 */
 #define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
+
+//获取超短字符串对应的长度(即获取对应的字符串长度)
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
 
+/* 内联函数 */
+
+/* 获取sds的长度 */
 static inline size_t sdslen(const sds s) {
+	//获取对应的字符串类型标记字节
     unsigned char flags = s[-1];
+	//根据对应的掩码来区分字符串类型，同时获取对应的字符串长度
     switch(flags&SDS_TYPE_MASK) {
         case SDS_TYPE_5:
             return SDS_TYPE_5_LEN(flags);
@@ -101,13 +120,17 @@ static inline size_t sdslen(const sds s) {
     return 0;
 }
 
+/* 获取sds的可用长度 */
 static inline size_t sdsavail(const sds s) {
+	//获取对应的字符串类型标记字节
     unsigned char flags = s[-1];
+	//根据对应的掩码来区分字符串类型，同时获取对应的可以使用的空间
     switch(flags&SDS_TYPE_MASK) {
         case SDS_TYPE_5: {
             return 0;
         }
         case SDS_TYPE_8: {
+			//此处使用对应的宏函数来创建一个对应的变量
             SDS_HDR_VAR(8,s);
             return sh->alloc - sh->len;
         }
@@ -127,12 +150,16 @@ static inline size_t sdsavail(const sds s) {
     return 0;
 }
 
+/* 设置sds的长度值 */
 static inline void sdssetlen(sds s, size_t newlen) {
+	//获取对应的字符串类型标记字节
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
         case SDS_TYPE_5:
             {
+            	//获取对应的字符串类型对应的空间指向
                 unsigned char *fp = ((unsigned char*)s)-1;
+				//设置新的字符串长度值
                 *fp = SDS_TYPE_5 | (newlen << SDS_TYPE_BITS);
             }
             break;
@@ -151,6 +178,7 @@ static inline void sdssetlen(sds s, size_t newlen) {
     }
 }
 
+/* 增加sds的长度 */
 static inline void sdsinclen(sds s, size_t inc) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
@@ -177,6 +205,7 @@ static inline void sdsinclen(sds s, size_t inc) {
 }
 
 /* sdsalloc() = sdsavail() + sdslen() */
+/* 获取sds已分配空间的大小 */
 static inline size_t sdsalloc(const sds s) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
@@ -194,6 +223,7 @@ static inline size_t sdsalloc(const sds s) {
     return 0;
 }
 
+/* 重新设置sds已分配空间的大小 */
 static inline void sdssetalloc(sds s, size_t newlen) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
@@ -215,13 +245,14 @@ static inline void sdssetalloc(sds s, size_t newlen) {
     }
 }
 
-sds sdsnewlen(const void *init, size_t initlen);
-sds sdsnew(const char *init);
-sds sdsempty(void);
-sds sdsdup(const sds s);
-void sdsfree(sds s);
-sds sdsgrowzero(sds s, size_t len);
-sds sdscatlen(sds s, const void *t, size_t len);
+/* SDS提供的相关函数 大部分函数都很简单，只是对zmalloc文件里面的函数，sds中inline函数，或者是sdsnewlen函数的一层简单调用 */
+sds sdsnewlen(const void *init, size_t initlen);//
+sds sdsnew(const char *init);//
+sds sdsempty(void); //获取一个空的sds对象
+sds sdsdup(const sds s);//复制字符串
+void sdsfree(sds s);//sds释放函数
+sds sdsgrowzero(sds s, size_t len); //扩展字符串到指定长度
+sds sdscatlen(sds s, const void *t, size_t len);//字符串的复制
 sds sdscat(sds s, const char *t);
 sds sdscatsds(sds s, const sds t);
 sds sdscpylen(sds s, const char *t, size_t len);
@@ -235,21 +266,21 @@ sds sdscatprintf(sds s, const char *fmt, ...)
 sds sdscatprintf(sds s, const char *fmt, ...);
 #endif
 
-sds sdscatfmt(sds s, char const *fmt, ...);
-sds sdstrim(sds s, const char *cset);
-void sdsrange(sds s, ssize_t start, ssize_t end);
-void sdsupdatelen(sds s);
-void sdsclear(sds s);
+sds sdscatfmt(sds s, char const *fmt, ...);//字符串格式化输出
+sds sdstrim(sds s, const char *cset);//字符串缩减
+void sdsrange(sds s, ssize_t start, ssize_t end);//字符串截取函数
+void sdsupdatelen(sds s);//更新字符串最新的长度
+void sdsclear(sds s);//字符串清空操作
 int sdscmp(const sds s1, const sds s2);
 sds *sdssplitlen(const char *s, ssize_t len, const char *sep, int seplen, int *count);
 void sdsfreesplitres(sds *tokens, int count);
-void sdstolower(sds s);
-void sdstoupper(sds s);
+void sdstolower(sds s);//sds字符串转小写
+void sdstoupper(sds s);//sds字符串转大写
 sds sdsfromlonglong(long long value);
 sds sdscatrepr(sds s, const char *p, size_t len);
 sds *sdssplitargs(const char *line, int *argc);
 sds sdsmapchars(sds s, const char *from, const char *to, size_t setlen);
-sds sdsjoin(char **argv, int argc, char *sep);
+sds sdsjoin(char **argv, int argc, char *sep); //以分隔符连接字符串子数组构成新的字符串
 sds sdsjoinsds(sds *argv, int argc, const char *sep, size_t seplen);
 
 /* Low level functions exposed to the user API */
@@ -261,8 +292,7 @@ void *sdsAllocPtr(sds s);
 
 /* Export the allocator used by SDS to the program using SDS.
  * Sometimes the program SDS is linked to, may use a different set of
- * allocators, but may want to allocate or free things that SDS will
- * respectively free or allocate. */
+ * allocators, but may want to allocate or free things that SDS will respectively free or allocate. */
 void *sds_malloc(size_t size);
 void *sds_realloc(void *ptr, size_t size);
 void sds_free(void *ptr);
@@ -272,3 +302,5 @@ int sdsTest(int argc, char *argv[]);
 #endif
 
 #endif
+
+
