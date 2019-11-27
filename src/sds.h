@@ -269,7 +269,7 @@ sds sdscatprintf(sds s, const char *fmt, ...);
 sds sdscatfmt(sds s, char const *fmt, ...);//字符串格式化输出
 sds sdstrim(sds s, const char *cset);//字符串缩减
 void sdsrange(sds s, ssize_t start, ssize_t end);//字符串截取函数
-void sdsupdatelen(sds s);//更新字符串最新的长度
+void sdsupdatelen(sds s);//重置给定sds的长度值
 void sdsclear(sds s);//字符串清空操作
 int sdscmp(const sds s1, const sds s2);
 sds *sdssplitlen(const char *s, ssize_t len, const char *sep, int seplen, int *count);
