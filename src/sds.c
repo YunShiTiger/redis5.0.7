@@ -11,6 +11,7 @@
 #include "sds.h"
 #include "sdsalloc.h"
 
+//特殊sds字符串   No Init
 const char *SDS_NOINIT = "SDS_NOINIT";
 
 /* 根据提供的sds类型来获取该sds类型对应的结构体大小 */
@@ -68,6 +69,7 @@ sds sdsnewlen(const void *init, size_t initlen) {
 	//根据提供的字符串长度初始化对应的sds类型
     char type = sdsReqType(initlen);
     /* Empty strings are usually created in order to append. Use type 8 since type 5 is not good at this. */
+	//特殊处理获取到的5类型的类型转化
     if (type == SDS_TYPE_5 && initlen == 0) 
 		type = SDS_TYPE_8;
 	//根据sds类型来获取该sds类型对应的结构体大小
@@ -76,11 +78,13 @@ sds sdsnewlen(const void *init, size_t initlen) {
 	
     //此处的s_malloc其实就是zmalloc函数,只是一个别名,注意这里，会给sds多增加一个字节的空间，由后面的s[initlen] = '\0';可知，作者是为了兼容C语言的字符串类型，这样就可以直接使用printf来输出sds了，这样非常的方便
     sh = s_malloc(hdrlen+initlen+1);
-    if (init==SDS_NOINIT)
+	//检测是否是特殊的初始化字符串
+	if (init==SDS_NOINIT)
         init = NULL;
     else if (!init)
 		//memset 用来对一段内存空间全部设置为某个字符，一般用在对定义的字符串进行初始化为‘ ’或‘/0’
         memset(sh, 0, hdrlen+initlen+1);
+	//检测创建对应的空间是否成功
     if (sh == NULL) 
 		return NULL;
 	//获取sds中字符串存储的起始位置
@@ -148,6 +152,7 @@ sds sdsnew(const char *init) {
 /* Duplicate an sds string. */
 /* 复制字符串操作 */
 sds sdsdup(const sds s) {
+	//其实s指定的位置就是字符串真实的位置指向
     return sdsnewlen(s, sdslen(s));
 }
 
