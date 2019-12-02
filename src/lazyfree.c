@@ -54,7 +54,8 @@ size_t lazyfreeGetFreeEffort(robj *obj) {
 int dbAsyncDelete(redisDb *db, robj *key) {
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
-    if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
+    if (dictSize(db->expires) > 0) 
+		dictDelete(db->expires,key->ptr);
 
     /* If the value is composed of a few allocations, to free in a lazy way
      * is actually just slower... So under a certain limit we just free
@@ -70,8 +71,7 @@ int dbAsyncDelete(redisDb *db, robj *key) {
          * possible. This rarely happens, however sometimes the implementation
          * of parts of the Redis core may call incrRefCount() to protect
          * objects, and then call dbDelete(). In this case we'll fall
-         * through and reach the dictFreeUnlinkedEntry() call, that will be
-         * equivalent to just calling decrRefCount(). */
+         * through and reach the dictFreeUnlinkedEntry() call, that will be equivalent to just calling decrRefCount(). */
         if (free_effort > LAZYFREE_THRESHOLD && val->refcount == 1) {
             atomicIncr(lazyfree_objects,1);
             bioCreateBackgroundJob(BIO_LAZY_FREE,val,NULL,NULL);
@@ -83,7 +83,8 @@ int dbAsyncDelete(redisDb *db, robj *key) {
      * field to NULL in order to lazy free it later. */
     if (de) {
         dictFreeUnlinkedEntry(db->dict,de);
-        if (server.cluster_enabled) slotToKeyDel(key);
+        if (server.cluster_enabled) 
+			slotToKeyDel(key);
         return 1;
     } else {
         return 0;

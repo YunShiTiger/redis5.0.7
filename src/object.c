@@ -1,31 +1,5 @@
-/* Redis Object implementation.
- *
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+/* 
+ * Redis Object implementation.
  */
 
 #include "server.h"
@@ -428,6 +402,7 @@ void trimStringObjectIfNeeded(robj *o) {
 }
 
 /* Try to encode a string object in order to save space */
+/* 尝试对给定的字符串进行编码处理 目的是节省存储空间 */
 robj *tryObjectEncoding(robj *o) {
     long value;
     sds s = o->ptr;
@@ -435,34 +410,31 @@ robj *tryObjectEncoding(robj *o) {
 
     /* Make sure this is a string object, the only type we encode
      * in this function. Other types use encoded memory efficient
-     * representations but are handled by the commands implementing
-     * the type. */
+     * representations but are handled by the commands implementing the type. */
+    //检测对应的类型一定要是字符串类型的数据
     serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
 
     /* We try some specialized encoding only for objects that are
-     * RAW or EMBSTR encoded, in other words objects that are still
-     * in represented by an actually array of chars. */
-    if (!sdsEncodedObject(o)) return o;
+     * RAW or EMBSTR encoded, in other words objects that are still in represented by an actually array of chars. */
+    if (!sdsEncodedObject(o)) 
+		return o;
 
     /* It's not safe to encode shared objects: shared objects can be shared
      * everywhere in the "object space" of Redis and may end in places where
      * they are not handled. We handle them only as values in the keyspace. */
-     if (o->refcount > 1) return o;
+     if (o->refcount > 1) 
+	 	return o;
 
     /* Check if we can represent this string as a long integer.
-     * Note that we are sure that a string larger than 20 chars is not
-     * representable as a 32 nor 64 bit integer. */
+     * Note that we are sure that a string larger than 20 chars is not representable as a 32 nor 64 bit integer. */
+    //获取对应的字符串数据的长度值 目的是超越20个字节的字符串数据不能表示32位或者64位的整数值
     len = sdslen(s);
+	//检测对应的字符串是否能够转换成整数类型 如果使用整数类型就可以节省对应的空间了
     if (len <= 20 && string2l(s,len,&value)) {
         /* This object is encodable as a long. Try to use a shared object.
          * Note that we avoid using shared integers when maxmemory is used
-         * because every object needs to have a private LRU field for the LRU
-         * algorithm to work well. */
-        if ((server.maxmemory == 0 ||
-            !(server.maxmemory_policy & MAXMEMORY_FLAG_NO_SHARED_INTEGERS)) &&
-            value >= 0 &&
-            value < OBJ_SHARED_INTEGERS)
-        {
+         * because every object needs to have a private LRU field for the LRU algorithm to work well. */
+        if ((server.maxmemory == 0 || !(server.maxmemory_policy & MAXMEMORY_FLAG_NO_SHARED_INTEGERS)) && value >= 0 && value < OBJ_SHARED_INTEGERS) {
             decrRefCount(o);
             incrRefCount(shared.integers[value]);
             return shared.integers[value];
@@ -485,8 +457,8 @@ robj *tryObjectEncoding(robj *o) {
      * in the same chunk of memory to save space and cache misses. */
     if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT) {
         robj *emb;
-
-        if (o->encoding == OBJ_ENCODING_EMBSTR) return o;
+        if (o->encoding == OBJ_ENCODING_EMBSTR) 
+			return o;
         emb = createEmbeddedStringObject(s,sdslen(s));
         decrRefCount(o);
         return emb;
@@ -499,8 +471,7 @@ robj *tryObjectEncoding(robj *o) {
      * is more than 10% of free space at the end of the SDS string.
      *
      * We do that only for relatively large strings as this branch
-     * is only entered if the length of the string is greater than
-     * OBJ_ENCODING_EMBSTR_SIZE_LIMIT. */
+     * is only entered if the length of the string is greater than OBJ_ENCODING_EMBSTR_SIZE_LIMIT. */
     trimStringObjectIfNeeded(o);
 
     /* Return the original object. */
