@@ -367,8 +367,11 @@ robj *resetRefCount(robj *obj) {
     return obj;
 }
 
+/* 检测给定的对象类型是否是指定的类型结构 */
 int checkType(client *c, robj *o, int type) {
+	//检测类型是否匹配
     if (o->type != type) {
+		//想客户端返回类型不匹配的错误信息
         addReply(c,shared.wrongtypeerr);
         return 1;
     }
@@ -478,8 +481,7 @@ robj *tryObjectEncoding(robj *o) {
     return o;
 }
 
-/* Get a decoded version of an encoded object (returned as a new object).
- * If the object is already raw-encoded just increment the ref count. */
+/* Get a decoded version of an encoded object (returned as a new object). If the object is already raw-encoded just increment the ref count. */
 robj *getDecodedObject(robj *o) {
     robj *dec;
 

@@ -286,9 +286,9 @@ void setrangeCommand(client *c) {
         /* Return existing string length when setting nothing */
 		//获取老对象的字符串长度
         olen = stringObjectLen(o);
-		//检测老对象字符串长度是否为0
+		//检测待插入的对象字符串长度是否为0
         if (sdslen(value) == 0) {
-			//直接向客户端返回老对象的长度0.同时不进行后续操作处理
+			//直接向客户端返回老对象的长度0.同时不进行后续操作处理---->即待插入的范围对象长度为0 就只返回老对象的长度就可以了
             addReplyLongLong(c,olen);
             return;
         }
@@ -299,12 +299,13 @@ void setrangeCommand(client *c) {
             return;
 
         /* Create a copy when the object is shared or encoded. */
+		//处理字符串对象因为共享问题而出现的拷贝问题------------------->即字符串对象被多个地方共享,不能随便在此处进行修改对象,不然所有引用处都发送了变化
         o = dbUnshareStringValue(c->db,c->argv[1],o);
     }
 	
 	//检测传入的字符串对象长度是否非0
     if (sdslen(value) > 0) {
-		//给对应的字符串指向位置开辟足够大的空间,同时在指定位置开始,后续内容全是0
+		//给对应的字符串指向位置开辟足够大的空间,同时在指定位置开始,后续内容全是0  
         o->ptr = sdsgrowzero(o->ptr,offset+sdslen(value));
 		//将新的字符串内容拷贝到对应的空间中
         memcpy((char*)o->ptr+offset,value,sdslen(value));

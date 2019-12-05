@@ -315,14 +315,22 @@ int dbDelete(redisDb *db, robj *key) {
  * At this point the caller is ready to modify the object, for example
  * using an sdscat() call to append some data, or anything else.
  */
+/* */
 robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
+	//检测对应的类型是否是字符串类型
     serverAssert(o->type == OBJ_STRING);
+	//
     if (o->refcount != 1 || o->encoding != OBJ_ENCODING_RAW) {
+		//
         robj *decoded = getDecodedObject(o);
+		//
         o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
+		//
         decrRefCount(decoded);
+		//
         dbOverwrite(db,key,o);
     }
+	//
     return o;
 }
 
