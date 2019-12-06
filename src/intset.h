@@ -1,54 +1,37 @@
 /*
- * Copyright (c) 2009-2012, Pieter Noordhuis <pcnoordhuis at gmail dot com>
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * 用于存储有序整数集合的一种实现方式
  */
 
 #ifndef __INTSET_H
 #define __INTSET_H
 #include <stdint.h>
 
+/* 整数集合的存储表示结构 */
 typedef struct intset {
+	//表示当前整数集合的编码方式   即使用几个字节来表示一个整数
     uint32_t encoding;
+	//集合中元素的个数
     uint32_t length;
+	//用于真正存储整数集合的数组
     int8_t contents[];
 } intset;
 
-intset *intsetNew(void);
-intset *intsetAdd(intset *is, int64_t value, uint8_t *success);
-intset *intsetRemove(intset *is, int64_t value, int *success);
-uint8_t intsetFind(intset *is, int64_t value);
-int64_t intsetRandom(intset *is);
-uint8_t intsetGet(intset *is, uint32_t pos, int64_t *value);
-uint32_t intsetLen(const intset *is);
-size_t intsetBlobLen(intset *is);
+/* 有序整数集合对外提供的处理函数 */
+intset *intsetNew(void);//创建一个空有序整数集合存储结构
+intset *intsetAdd(intset *is, int64_t value, uint8_t *success);//
+intset *intsetRemove(intset *is, int64_t value, int *success);//在整数集合中删除给定的整数
+uint8_t intsetFind(intset *is, int64_t value);//检测整数集合中是否有对应的整数
+int64_t intsetRandom(intset *is);//获取整数集合中随机位置的一个整数的值
+uint8_t intsetGet(intset *is, uint32_t pos, int64_t *value);//获取整数集合中给定位置的整数值
+uint32_t intsetLen(const intset *is);//获取给定整数集合中元素的个数
+size_t intsetBlobLen(intset *is);//获取给定整数集合占据的总的字节个数 
 
 #ifdef REDIS_TEST
 int intsetTest(int argc, char *argv[]);
 #endif
 
 #endif // __INTSET_H
+
+
+
+
