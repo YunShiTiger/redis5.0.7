@@ -602,17 +602,14 @@ void scanCallback(void *privdata, const dictEntry *de) {
 
 /* Try to parse a SCAN cursor stored at object 'o':
  * if the cursor is valid, store it as unsigned integer into *cursor and
- * returns C_OK. Otherwise return C_ERR and send an error to the
- * client. */
+ * returns C_OK. Otherwise return C_ERR and send an error to the client. */
 int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor) {
     char *eptr;
 
-    /* Use strtoul() because we need an *unsigned* long, so
-     * getLongLongFromObject() does not cover the whole cursor space. */
+    /* Use strtoul() because we need an *unsigned* long, so getLongLongFromObject() does not cover the whole cursor space. */
     errno = 0;
     *cursor = strtoul(o->ptr, &eptr, 10);
-    if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' || errno == ERANGE)
-    {
+    if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' || errno == ERANGE) {
         addReplyError(c, "invalid cursor");
         return C_ERR;
     }
@@ -641,8 +638,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
 
     /* Object must be NULL (to iterate keys names), or the type of the object
      * must be Set, Sorted Set, or Hash. */
-    serverAssert(o == NULL || o->type == OBJ_SET || o->type == OBJ_HASH ||
-                o->type == OBJ_ZSET);
+    serverAssert(o == NULL || o->type == OBJ_SET || o->type == OBJ_HASH || o->type == OBJ_ZSET);
 
     /* Set i to the first option argument. The previous one is the cursor. */
     i = (o == NULL) ? 2 : 3; /* Skip the key argument if needed. */
@@ -651,9 +647,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     while (i < c->argc) {
         j = c->argc - i;
         if (!strcasecmp(c->argv[i]->ptr, "count") && j >= 2) {
-            if (getLongFromObjectOrReply(c, c->argv[i+1], &count, NULL)
-                != C_OK)
-            {
+            if (getLongFromObjectOrReply(c, c->argv[i+1], &count, NULL) != C_OK) {
                 goto cleanup;
             }
 
@@ -667,8 +661,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             pat = c->argv[i+1]->ptr;
             patlen = sdslen(pat);
 
-            /* The pattern always matches if it is exactly "*", so it is
-             * equivalent to disabling it. */
+            /* The pattern always matches if it is exactly "*", so it is equivalent to disabling it. */
             use_pattern = !(pat[0] == '*' && patlen == 1);
 
             i += 2;
@@ -716,9 +709,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         privdata[1] = o;
         do {
             cursor = dictScan(ht, cursor, scanCallback, NULL, privdata);
-        } while (cursor &&
-              maxiterations-- &&
-              listLength(keys) < (unsigned long)count);
+        } while (cursor && maxiterations-- && listLength(keys) < (unsigned long)count);
     } else if (o->type == OBJ_SET) {
         int pos = 0;
         int64_t ll;
@@ -734,9 +725,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
 
         while(p) {
             ziplistGet(p,&vstr,&vlen,&vll);
-            listAddNodeTail(keys,
-                (vstr != NULL) ? createStringObject((char*)vstr,vlen) :
-                                 createStringObjectFromLongLong(vll));
+            listAddNodeTail(keys, (vstr != NULL) ? createStringObject((char*)vstr,vlen) : createStringObjectFromLongLong(vll));
             p = ziplistNext(o->ptr,p);
         }
         cursor = 0;

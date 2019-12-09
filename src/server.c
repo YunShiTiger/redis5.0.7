@@ -727,13 +727,15 @@ dictType replScriptCacheDictType = {
     NULL                        /* val destructor */
 };
 
+/* 检测字典结构是否需要进行缩容操作处理 */
 int htNeedsResize(dict *dict) {
     long long size, used;
-
+	//获取当前字典结构的槽位值
     size = dictSlots(dict);
+	//获取当前字典结构的元素个数
     used = dictSize(dict);
-    return (size > DICT_HT_INITIAL_SIZE &&
-            (used*100/size < HASHTABLE_MIN_FILL));
+	//元素个数不足槽位数的10% 触发进行缩容处理 即减少对应的槽位数 进行重hash处理
+    return (size > DICT_HT_INITIAL_SIZE && (used*100/size < HASHTABLE_MIN_FILL));
 }
 
 /* If the percentage of used slots in the HT reaches HASHTABLE_MIN_FILL

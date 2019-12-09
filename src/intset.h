@@ -18,7 +18,7 @@ typedef struct intset {
 
 /* 有序整数集合对外提供的处理函数 */
 intset *intsetNew(void);//创建一个空有序整数集合存储结构
-intset *intsetAdd(intset *is, int64_t value, uint8_t *success);//
+intset *intsetAdd(intset *is, int64_t value, uint8_t *success);//在整数集合中进行插入给定的整数
 intset *intsetRemove(intset *is, int64_t value, int *success);//在整数集合中删除给定的整数
 uint8_t intsetFind(intset *is, int64_t value);//检测整数集合中是否有对应的整数
 int64_t intsetRandom(intset *is);//获取整数集合中随机位置的一个整数的值

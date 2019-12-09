@@ -174,6 +174,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CONFIG_FDSET_INCR (CONFIG_MIN_RESERVED_FDS+96)
 
 /* Hash table parameters */
+//字典结构中hash表进行缩容的最小比例值
 #define HASHTABLE_MIN_FILL        10      /* Minimal hash table fill 10% */
 
 /* Command flags. Please check the command table defined in the redis.c file
@@ -1339,14 +1340,18 @@ typedef struct {
 
 /* Structure to hold hash iteration abstraction. Note that iteration over
  * hashes involves both fields and values. Because it is possible that
- * not both are required, store pointers in the iterator to avoid
- * unnecessary memory allocation for fields/values. */
+ * not both are required, store pointers in the iterator to avoid unnecessary memory allocation for fields/values. */
+/* 遍历Hash对象的迭代器 */
 typedef struct {
+	//指向对应的Hash对象
     robj *subject;
+	//当前Hash对象的编码方式 这个方式绝对了后续遍历的方式
     int encoding;
 
+	//迭代压缩列表实现时使用的两个指针
     unsigned char *fptr, *vptr;
 
+	//迭代字典实现时使用的两个指针
     dictIterator *di;
     dictEntry *de;
 } hashTypeIterator;
