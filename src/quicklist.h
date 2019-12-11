@@ -81,7 +81,7 @@ typedef struct quicklistIter {
     const quicklist *quicklist;
 	//指向当前迭代的quicklist节点的指针
     quicklistNode *current;
-	//指向当前quicklist节点中迭代的ziplist
+	//指向当前quicklist节点中迭代的ziplist中对应的元素    ---->不是ziplist结构的指向
     unsigned char *zi;
 	//当前ziplist结构中的偏移量
     long offset; /* offset in current ziplist */
@@ -95,7 +95,7 @@ typedef struct quicklistEntry {
     const quicklist *quicklist;
 	//指向所属的quicklistNode节点的指针
     quicklistNode *node;
-	//指向当前ziplist结构的指针
+	//指向当前ziplist结构的中遍历的节点元素指向 不是ziplist结构的指向
     unsigned char *zi;
 	//指向当前ziplist结构的字符串vlaue成员
     unsigned char *value;
@@ -137,28 +137,28 @@ void quicklistRelease(quicklist *quicklist);//释放对应的quicklist结构中�
 int quicklistPushHead(quicklist *quicklist, void *value, const size_t sz);//在quicklist结构的头部链表节点上插入一个数据节点  ----->同时数据节点插入到对应的ziplist的头部
 int quicklistPushTail(quicklist *quicklist, void *value, const size_t sz);//在quicklist结构的尾部链表节点上插入一个数据节点  ----->同时数据节点插入到对应的ziplist的尾部
 void quicklistPush(quicklist *quicklist, void *value, const size_t sz, int where);//封装的基于给定参数进行节点数据插入操作的处理---->注意这个地方是插入数据节点
-void quicklistAppendZiplist(quicklist *quicklist, unsigned char *zl);//
-quicklist *quicklistAppendValuesFromZiplist(quicklist *quicklist, unsigned char *zl);//
-quicklist *quicklistCreateFromZiplist(int fill, int compress, unsigned char *zl);//
-void quicklistInsertAfter(quicklist *quicklist, quicklistEntry *node, void *value, const size_t sz);//
-void quicklistInsertBefore(quicklist *quicklist, quicklistEntry *node, void *value, const size_t sz);//
-void quicklistDelEntry(quicklistIter *iter, quicklistEntry *entry);//
-int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data, int sz);//
-int quicklistDelRange(quicklist *quicklist, const long start, const long stop);//
+void quicklistAppendZiplist(quicklist *quicklist, unsigned char *zl);//将给定的ziplist结构数据链接到quicklist结构的尾链表节点后
+quicklist *quicklistAppendValuesFromZiplist(quicklist *quicklist, unsigned char *zl);//循环将一个ziplist中的元素插入到quicklist结构的尾部
+quicklist *quicklistCreateFromZiplist(int fill, int compress, unsigned char *zl);//根据给定的压缩参数和填充参数以及存在的ziplist来构建对应的quicklist结构
+void quicklistInsertAfter(quicklist *quicklist, quicklistEntry *node, void *value, const size_t sz);//封装的在给定的节点信息后插入元素
+void quicklistInsertBefore(quicklist *quicklist, quicklistEntry *node, void *value, const size_t sz);//封装的在给定的节点信息前插入元素
+void quicklistDelEntry(quicklistIter *iter, quicklistEntry *entry);//删除给定元素的节点,如果删除成功需要对应迭代器的参数数据,用于指向下一个需要进行遍历的元素
+int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data, int sz);//在quicklist结构上替换给定索引位置上的数据
+int quicklistDelRange(quicklist *quicklist, const long start, const long stop);//在quicklist结构中删除从指定索引位置开始的指定元素的数量
 quicklistIter *quicklistGetIterator(const quicklist *quicklist, int direction);//获取quicklist结构的指定方向上的迭代器
 quicklistIter *quicklistGetIteratorAtIdx(const quicklist *quicklist, int direction, const long long idx);//根据给定的索引位置和方向初始一个迭代器对象
-int quicklistNext(quicklistIter *iter, quicklistEntry *node);//
+int quicklistNext(quicklistIter *iter, quicklistEntry *node);//通过迭代器获取下一个可以遍历到的元素节点信息
 void quicklistReleaseIterator(quicklistIter *iter);//释放对应的迭代器对象
 quicklist *quicklistDup(quicklist *orig);//拷贝对应的quicklist结构
 int quicklistIndex(const quicklist *quicklist, const long long index, quicklistEntry *entry);//获取指定索引位置处理的元素节点信息
 void quicklistRewind(quicklist *quicklist, quicklistIter *li);
 void quicklistRewindTail(quicklist *quicklist, quicklistIter *li);
-void quicklistRotate(quicklist *quicklist);
-int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data, unsigned int *sz, long long *sval, void *(*saver)(unsigned char *data, unsigned int sz));
+void quicklistRotate(quicklist *quicklist);//将quicklist结构中的最后一个元素移动到第一个位置上
+int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data, unsigned int *sz, long long *sval, void *(*saver)(unsigned char *data, unsigned int sz));//在quicklist结构中进行数据弹出操作处理
 int quicklistPop(quicklist *quicklist, int where, unsigned char **data, unsigned int *sz, long long *slong);//默认的在quicklist结构中进行数据弹出操作的处理函数
 unsigned long quicklistCount(const quicklist *ql);//获取当前quicklist结构中总共多少数据元素节点
 int quicklistCompare(unsigned char *p1, unsigned char *p2, int p2_len);//比较给定的两个字符串数据指向的内容是否相同
-size_t quicklistGetLzf(const quicklistNode *node, void **data);
+size_t quicklistGetLzf(const quicklistNode *node, void **data);//获取给定链表节点的压缩数据,同时返回对应的未进行压缩前的总字节数
 
 #ifdef REDIS_TEST
 int quicklistTest(int argc, char *argv[]);
