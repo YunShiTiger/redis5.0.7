@@ -1,5 +1,7 @@
 /* 
  * Redis Object implementation.
+ * 此处完成了在redis中 对象类型 和 对应的底层结构类型的 关联 
+ * 即在redis中实现了一套对上层提供对象机制 屏蔽了底层的实现方式
  */
 
 #include "server.h"
@@ -7,90 +9,127 @@
 #include <ctype.h>
 
 #ifdef __CYGWIN__
+//将a转换成long double类型，并记录是否转换失败到b中
 #define strtold(a,b) ((long double)strtod((a),(b)))
 #endif
 
 /* ===================== Creation and parsing of objects ==================== */
 
+//根据提供的对象类型和对应的结构实现来创建对应的对象
 robj *createObject(int type, void *ptr) {
+	//首先分配对应的对象空间
     robj *o = zmalloc(sizeof(*o));
+	//设置对象类型 -------------> 对象是对象类型
     o->type = type;
+	//设置一个默认的编码实现类型 即底层结构是使用那种结构类型实现的----->结构是结构类型
     o->encoding = OBJ_ENCODING_RAW;
+	//设置对象底层实现
     o->ptr = ptr;
+	//初始默认引用计数为1
     o->refcount = 1;
 
-    /* Set the LRU to the current lruclock (minutes resolution), or
-     * alternatively the LFU counter. */
+    /* Set the LRU to the current lruclock (minutes resolution), or alternatively the LFU counter. */
+	//计算设置当前LRU时间
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
     } else {
         o->lru = LRU_CLOCK();
     }
+	//返回创建的对象指向
     return o;
 }
 
 /* Set a special refcount in the object to make it "shared":
  * incrRefCount and decrRefCount() will test for this special refcount
  * and will not touch the object. This way it is free to access shared
- * objects such as small integers from different threads without any
- * mutex.
+ * objects such as small integers from different threads without any mutex.
  *
- * A common patter to create shared objects:
- *
- * robj *myobject = makeObjectShared(createObject(...));
- *
+ * A common patter to create shared objects: robj *myobject = makeObjectShared(createObject(...));
  */
+/* 将一个普通类型的对象设置为共享类型对象----->即改变对象的引用计数值 将对应的引用计数值设置为一个最大整数值 */
 robj *makeObjectShared(robj *o) {
+	//检测当前对象是否不是共享类型对象
     serverAssert(o->refcount == 1);
+	//设置共享类型的引用计数值
     o->refcount = OBJ_SHARED_REFCOUNT;
+	//返回对应的对象指向
     return o;
 }
 
-/* Create a string object with encoding OBJ_ENCODING_RAW, that is a plain
- * string object where o->ptr points to a proper sds string. */
+/* Create a string object with encoding OBJ_ENCODING_RAW, that is a plain string object where o->ptr points to a proper sds string. */
+/* 创建一个字符串对象，编码默认为OBJ_ENCODING_RAW，指向的数据为一个sds结构 */
 robj *createRawStringObject(const char *ptr, size_t len) {
     return createObject(OBJ_STRING, sdsnewlen(ptr,len));
 }
 
 /* Create a string object with encoding OBJ_ENCODING_EMBSTR, that is
- * an object where the sds string is actually an unmodifiable string
- * allocated in the same chunk as the object itself. */
+ * an object where the sds string is actually an unmodifiable string allocated in the same chunk as the object itself. */
+/* 创建一个embstr编码的字符串对象 */
 robj *createEmbeddedStringObject(const char *ptr, size_t len) {
+	//分配对应大小的空间 空间大小为 一个对象结构占据的空间 + 一个sdshdr8结构占据的空间 + 真实字符串数据占据的空间 + 字符串结束符占据的一个空间
     robj *o = zmalloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
+	//o+1刚好就是struct sdshdr8的地址
     struct sdshdr8 *sh = (void*)(o+1);
 
+	/* 下面是完成对对象数据的相关初始化处理 */
+	//设置对象类型为字符串对象
     o->type = OBJ_STRING;
+	//设置编码类型OBJ_ENCODING_EMBSTR
     o->encoding = OBJ_ENCODING_EMBSTR;
+	//指向分配的sds对象，分配的len+1的空间首地址
     o->ptr = sh+1;
+	//设置引用计数
     o->refcount = 1;
+	//计算设置当前LRU时间
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
     } else {
         o->lru = LRU_CLOCK();
     }
 
+	/* 下面是完成对sdshdr8结构的相关初始化处理 */
+	//设置字符串长度
     sh->len = len;
+	//设置最大容量
     sh->alloc = len;
+	//设置sds结构的类型
     sh->flags = SDS_TYPE_8;
+	//检测是否是特定的字符串内容
     if (ptr == SDS_NOINIT)
         sh->buf[len] = '\0';
     else if (ptr) {
+		//将传进来的ptr数据保存到结构中
         memcpy(sh->buf,ptr,len);
+		//设置结束符标志
         sh->buf[len] = '\0';
     } else {
+		//否则将对象的空间初始化为0
         memset(sh->buf,0,len+1);
     }
+	//返回对应的对象指向
     return o;
 }
 
 /* Create a string object with EMBSTR encoding if it is smaller than
- * OBJ_ENCODING_EMBSTR_SIZE_LIMIT, otherwise the RAW encoding is
- * used.
+ * OBJ_ENCODING_EMBSTR_SIZE_LIMIT, otherwise the RAW encoding is used.
  *
  * The current limit of 44 is chosen so that the biggest string object
  * we allocate as EMBSTR will still fit into the 64 byte arena of jemalloc. */
+/* 进行区分存储字符串数据编码方式的门限值 */
+/* 门限值的来源: 
+ * sdshdr8的大小为3个字节，加上1个结束符共4个字节
+ * redisObject的大小为16个字节
+ * redis使用jemalloc内存分配器，且jemalloc会分配8，16，32，64等字节的内存
+ * 一个embstr固定的大小为16+3+1 = 20个字节，因此一个最大的embstr字符串为64-20 = 44字节
+ */
 #define OBJ_ENCODING_EMBSTR_SIZE_LIMIT 44
+/* 创建字符串对象，根据长度使用不同的编码类型 */
+/* 	createRawStringObject和createEmbeddedStringObject的区别是：
+ * 		createRawStringObject是当字符串长度大于44字节时，robj结构和sdshdr结构在内存上是分开的
+ * 		createEmbeddedStringObject是当字符串长度小于等于44字节时，robj结构和sdshdr结构在内存上是连续的
+ */
 robj *createStringObject(const char *ptr, size_t len) {
+	//根据字符串长度值来确定对应的创建方式
     if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT)
         return createEmbeddedStringObject(ptr,len);
     else
@@ -102,16 +141,12 @@ robj *createStringObject(const char *ptr, size_t len) {
  *
  * If valueobj is non zero, the function avoids returning a a shared
  * integer, because the object is going to be used as value in the Redis key
- * space (for instance when the INCR command is used), so we want LFU/LRU
- * values specific for each key. */
+ * space (for instance when the INCR command is used), so we want LFU/LRU values specific for each key. */
 robj *createStringObjectFromLongLongWithOptions(long long value, int valueobj) {
     robj *o;
 
-    if (server.maxmemory == 0 ||
-        !(server.maxmemory_policy & MAXMEMORY_FLAG_NO_SHARED_INTEGERS))
-    {
-        /* If the maxmemory policy permits, we can still return shared integers
-         * even if valueobj is true. */
+    if (server.maxmemory == 0 || !(server.maxmemory_policy & MAXMEMORY_FLAG_NO_SHARED_INTEGERS)) {
+        /* If the maxmemory policy permits, we can still return shared integers even if valueobj is true. */
         valueobj = 0;
     }
 
@@ -130,16 +165,14 @@ robj *createStringObjectFromLongLongWithOptions(long long value, int valueobj) {
     return o;
 }
 
-/* Wrapper for createStringObjectFromLongLongWithOptions() always demanding
- * to create a shared object if possible. */
+/* Wrapper for createStringObjectFromLongLongWithOptions() always demanding to create a shared object if possible. */
 robj *createStringObjectFromLongLong(long long value) {
     return createStringObjectFromLongLongWithOptions(value,0);
 }
 
 /* Wrapper for createStringObjectFromLongLongWithOptions() avoiding a shared
  * object when LFU/LRU info are needed, that is, when the object is used
- * as a value in the key space, and Redis is configured to evict based on
- * LFU/LRU. */
+ * as a value in the key space, and Redis is configured to evict based on LFU/LRU. */
 robj *createStringObjectFromLongLongForValue(long long value) {
     return createStringObjectFromLongLongWithOptions(value,1);
 }
@@ -185,66 +218,108 @@ robj *dupStringObject(const robj *o) {
     }
 }
 
+/* 下面的方法都是redis中提供创建对应类型对象的方法 */
+
+/* 创建一个quicklist编码的列表对象 */
 robj *createQuicklistObject(void) {
+	//创建一个quicklist结构
     quicklist *l = quicklistCreate();
+	//创建一个对象，对象的数据类型为OBJ_LIST
     robj *o = createObject(OBJ_LIST,l);
+	//对象的编码类型OBJ_ENCODING_QUICKLIST
     o->encoding = OBJ_ENCODING_QUICKLIST;
+	//返回对应的对象
     return o;
 }
 
+/* 创建一个ziplist编码的列表对象 */
 robj *createZiplistObject(void) {
+	//创建一个ziplist结构
     unsigned char *zl = ziplistNew();
+	//创建一个对象，对象的数据类型为OBJ_LIST
     robj *o = createObject(OBJ_LIST,zl);
+	//对象的编码类型OBJ_ENCODING_ZIPLIST
     o->encoding = OBJ_ENCODING_ZIPLIST;
+	//返回对应的对象
     return o;
 }
 
+/* 创建对应的字典类型集合对象 */
 robj *createSetObject(void) {
+	//创建对应的字典结构
     dict *d = dictCreate(&setDictType,NULL);
+	//创建对应的字典结构对象
     robj *o = createObject(OBJ_SET,d);
+	//设置对象的编码实现方式
     o->encoding = OBJ_ENCODING_HT;
+	//返回对应的对象
     return o;
 }
 
+/* 创建对应的整数集合类型对象 */
 robj *createIntsetObject(void) {
+	//创建对应的整数集合结构
     intset *is = intsetNew();
+	//创建对应的整数集合对象
     robj *o = createObject(OBJ_SET,is);
+	//设置对象的编码实现方式
     o->encoding = OBJ_ENCODING_INTSET;
+	//返回对应的对象
     return o;
 }
 
+/* 创建一个ziplist编码的哈希对象 */
 robj *createHashObject(void) {
+	//创建一个ziplist结构
     unsigned char *zl = ziplistNew();
+	//创建一个对象，对象的数据类型为OBJ_HASH
     robj *o = createObject(OBJ_HASH, zl);
+	//对象的编码类型OBJ_ENCODING_ZIPLIST
     o->encoding = OBJ_ENCODING_ZIPLIST;
+	//返回对应的对象
     return o;
 }
 
+/* 创建一个skiplist编码的有序集合对象 */
 robj *createZsetObject(void) {
+	//创建对应的zset结构
     zset *zs = zmalloc(sizeof(*zs));
     robj *o;
-
+	
+	//创建一个字典结构
     zs->dict = dictCreate(&zsetDictType,NULL);
+	//创建一个跳跃表结构
     zs->zsl = zslCreate();
+	//创建一个对象，对象的数据类型为OBJ_ZSET
     o = createObject(OBJ_ZSET,zs);
+	//对象的编码类型OBJ_ENCODING_SKIPLIST
     o->encoding = OBJ_ENCODING_SKIPLIST;
+	//返回对应的对象
     return o;
 }
 
+/* 创建一个ziplist编码的有序集合对象 */
 robj *createZsetZiplistObject(void) {
+	//创建一个ziplist结构
     unsigned char *zl = ziplistNew();
+	//创建一个对象，对象的数据类型为OBJ_ZSET
     robj *o = createObject(OBJ_ZSET,zl);
+	//对象的编码类型OBJ_ENCODING_ZIPLIST
     o->encoding = OBJ_ENCODING_ZIPLIST;
+	//返回对应的对象
     return o;
 }
 
+/* 创建对应的流类型对象 */
 robj *createStreamObject(void) {
     stream *s = streamNew();
     robj *o = createObject(OBJ_STREAM,s);
     o->encoding = OBJ_ENCODING_STREAM;
+	//返回对应的对象
     return o;
 }
 
+/* 创建对应的模块对象类型 */
 robj *createModuleObject(moduleType *mt, void *value) {
     moduleValue *mv = zmalloc(sizeof(*mv));
     mv->type = mt;
@@ -252,26 +327,38 @@ robj *createModuleObject(moduleType *mt, void *value) {
     return createObject(OBJ_MODULE,mv);
 }
 
+/* 下面的方法是根据传入的对象类型来触发释放对象底层结构占据的空间处理方法 */
+
+/* 释放字符串对象ptr指向的结构空间 */
 void freeStringObject(robj *o) {
+	 //检测字符串对象的编码方式-------->即对象和数据是否分离的
     if (o->encoding == OBJ_ENCODING_RAW) {
+		//释放对应的数据部分的空间
         sdsfree(o->ptr);
     }
 }
 
+/* 释放列表对象ptr指向的结构空间 */
 void freeListObject(robj *o) {
+	//检测List列表对象的编码方式
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
+		//释放对应的数据部分空间
         quicklistRelease(o->ptr);
     } else {
         serverPanic("Unknown list encoding type");
     }
 }
 
+/* 释放集合对象ptr指向的结构空间 */
 void freeSetObject(robj *o) {
+	//检测集合的编码方式
     switch (o->encoding) {
     case OBJ_ENCODING_HT:
+		//释放对应的数据部分空间--->字典结构实现
         dictRelease((dict*) o->ptr);
         break;
     case OBJ_ENCODING_INTSET:
+		//释放对应的数据部分空间--->整数集合结构实现
         zfree(o->ptr);
         break;
     default:
@@ -279,16 +366,20 @@ void freeSetObject(robj *o) {
     }
 }
 
+/* 释放有序集合对象ptr指向的结构空间 */
 void freeZsetObject(robj *o) {
     zset *zs;
+	//检测有序集合的编码方式
     switch (o->encoding) {
     case OBJ_ENCODING_SKIPLIST:
+		//释放对应的数据部分空间
         zs = o->ptr;
         dictRelease(zs->dict);
         zslFree(zs->zsl);
         zfree(zs);
         break;
     case OBJ_ENCODING_ZIPLIST:
+		//释放对应的数据部分空间
         zfree(o->ptr);
         break;
     default:
@@ -296,12 +387,16 @@ void freeZsetObject(robj *o) {
     }
 }
 
+/* 释放哈希对象ptr指向的结构空间 */
 void freeHashObject(robj *o) {
+	//检测哈希对象的编码方式
     switch (o->encoding) {
     case OBJ_ENCODING_HT:
+		//释放对应的数据部分空间
         dictRelease((dict*) o->ptr);
         break;
     case OBJ_ENCODING_ZIPLIST:
+		//释放对应的数据部分空间
         zfree(o->ptr);
         break;
     default:
@@ -310,42 +405,78 @@ void freeHashObject(robj *o) {
     }
 }
 
+/* 释放模块对象ptr指向的结构空间 */
 void freeModuleObject(robj *o) {
+	//获取对应的数据指向
     moduleValue *mv = o->ptr;
+	//释放对应的结构空间
     mv->type->free(mv->value);
+	//释放对应的空间
     zfree(mv);
 }
 
+/* 释放流对象ptr指向的结构空间 */
 void freeStreamObject(robj *o) {
     freeStream(o->ptr);
 }
 
+/* 下面的处理函数是操作对象引用计数方面的处理函数 */
+
+/* 增加给定对象的引用计数值 */
 void incrRefCount(robj *o) {
-    if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount++;
+	//检测是否是共享类型对象
+    if (o->refcount != OBJ_SHARED_REFCOUNT) 
+		//增加对象对应的引用计数值
+		o->refcount++;
 }
 
+/* 减少对应的对象的引用计数 */
+/* 注意：如果对应的对象引用计数为1,再减少说明没有对象对其进行引用了,需要进行释放对应的对象空间了 */
 void decrRefCount(robj *o) {
+	//检测是否还有其他的对象对其进行引用---->没有就根据类型进行空间释放操作处理
     if (o->refcount == 1) {
+		//根据值对象的类型不同,触发不同的释放空间操作处理
         switch(o->type) {
-        case OBJ_STRING: freeStringObject(o); break;
-        case OBJ_LIST: freeListObject(o); break;
-        case OBJ_SET: freeSetObject(o); break;
-        case OBJ_ZSET: freeZsetObject(o); break;
-        case OBJ_HASH: freeHashObject(o); break;
-        case OBJ_MODULE: freeModuleObject(o); break;
-        case OBJ_STREAM: freeStreamObject(o); break;
-        default: serverPanic("Unknown object type"); break;
+        case OBJ_STRING: 
+			freeStringObject(o); 
+		break;
+        case OBJ_LIST: 
+			freeListObject(o); 
+			break;
+        case OBJ_SET: 
+			freeSetObject(o); 
+			break;
+        case OBJ_ZSET: 
+			freeZsetObject(o); 
+			break;
+        case OBJ_HASH: 
+			freeHashObject(o); 
+			break;
+        case OBJ_MODULE: 
+			freeModuleObject(o); 
+			break;
+        case OBJ_STREAM: 
+			freeStreamObject(o); 
+			break;
+        default: 
+        	serverPanic("Unknown object type"); 
+			break;
         }
+		//最后将本值对象占据的空间也触发释放空间处理
         zfree(o);
     } else {
-        if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");
-        if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount--;
+		//检测引用计数是否是非法值的异常处理
+        if (o->refcount <= 0) 
+			serverPanic("decrRefCount against refcount <= 0");
+		//检测对应的对象是否是共享类型对象
+        if (o->refcount != OBJ_SHARED_REFCOUNT) 
+			//减少对象的引用计数
+			o->refcount--;
     }
 }
 
 /* This variant of decrRefCount() gets its argument as void, and is useful
- * as free method in data structures that expect a 'void free_object(void*)'
- * prototype for the free method. */
+ * as free method in data structures that expect a 'void free_object(void*)' prototype for the free method. */
 void decrRefCountVoid(void *o) {
     decrRefCount(o);
 }
@@ -358,11 +489,13 @@ void decrRefCountVoid(void *o) {
  *
  * Otherwise you need to resort to the less elegant pattern:
  *
- *    *obj = createObject(...);
- *    functionThatWillIncrementRefCount(obj);
- *    decrRefCount(obj);
+ *    *obj = createObject(...);   //创建对象 即初始化引用计数为1
+ *    functionThatWillIncrementRefCount(obj); //在处理函数中增加了对象的引用计数 到 2
+ *    decrRefCount(obj); //处理函数结束之后 需要手动的进行减少引用计数 到 1
  */
+/* 重置obj对象的引用计数为0，用于上面注释中的情况 即不需要处理完成之后再一次触发减少引用计数的处理 */
 robj *resetRefCount(robj *obj) {
+	//设置对象的引用计数为0 
     obj->refcount = 0;
     return obj;
 }
@@ -373,21 +506,31 @@ int checkType(client *c, robj *o, int type) {
     if (o->type != type) {
 		//想客户端返回类型不匹配的错误信息
         addReply(c,shared.wrongtypeerr);
+		//返回类型不不匹配标识
         return 1;
     }
+	//返回类型匹配标识
     return 0;
 }
 
+/* 判断对应的sds类型是否可以转换成对应的整数值 如果可以保存在llval中 */
 int isSdsRepresentableAsLongLong(sds s, long long *llval) {
     return string2ll(s,sdslen(s),llval) ? C_OK : C_ERR;
 }
 
+/* 判断对象的ptr指向的值能否转换为long long类型，如果可以保存在llval中 */
 int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
+	//检测类型是否是对应的字符串类型对象
     serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
+	//检测字符串对象的编码方式是否是整数类型
     if (o->encoding == OBJ_ENCODING_INT) {
-        if (llval) *llval = (long) o->ptr;
+        if (llval) 
+			//直接获取对应的整数值
+			*llval = (long) o->ptr;
+		//返回获取成功标识
         return C_OK;
     } else {
+		//判断对应的sds类型是否可以转换成对应的整数值
         return isSdsRepresentableAsLongLong(o->ptr,llval);
     }
 }
@@ -397,9 +540,7 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
  * string. This happens because SDS strings tend to overallocate to avoid
  * wasting too much time in allocations when appending to the string. */
 void trimStringObjectIfNeeded(robj *o) {
-    if (o->encoding == OBJ_ENCODING_RAW &&
-        sdsavail(o->ptr) > sdslen(o->ptr)/10)
-    {
+    if (o->encoding == OBJ_ENCODING_RAW && sdsavail(o->ptr) > sdslen(o->ptr)/10) {
         o->ptr = sdsRemoveFreeSpace(o->ptr);
     }
 }
@@ -468,13 +609,8 @@ robj *tryObjectEncoding(robj *o) {
     }
 
     /* We can't encode the object...
-     *
-     * Do the last try, and at least optimize the SDS string inside
-     * the string object to require little space, in case there
-     * is more than 10% of free space at the end of the SDS string.
-     *
-     * We do that only for relatively large strings as this branch
-     * is only entered if the length of the string is greater than OBJ_ENCODING_EMBSTR_SIZE_LIMIT. */
+     * Do the last try, and at least optimize the SDS string inside the string object to require little space, in case there is more than 10% of free space at the end of the SDS string.
+     * We do that only for relatively large strings as this branch is only entered if the length of the string is greater than OBJ_ENCODING_EMBSTR_SIZE_LIMIT. */
     trimStringObjectIfNeeded(o);
 
     /* Return the original object. */
@@ -505,25 +641,37 @@ robj *getDecodedObject(robj *o) {
  * use ll2string() to get a string representation of the numbers on the stack
  * and compare the strings, it's much faster than calling getDecodedObject().
  *
- * Important note: when REDIS_COMPARE_BINARY is used a binary-safe comparison
- * is used. */
+ * Important note: when REDIS_COMPARE_BINARY is used a binary-safe comparison is used. */
 
-#define REDIS_COMPARE_BINARY (1<<0)
-#define REDIS_COMPARE_COLL (1<<1)
+#define REDIS_COMPARE_BINARY (1<<0)  //以二进制方式进行比较标记
+#define REDIS_COMPARE_COLL (1<<1)    //以本地指定的字符次序进行比较标记
 
+/* 根据flags比较两个字符串对象a和b，返回0表示相等，非零表示不相等 */
 int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
+	//检测两个对象是否是字符串对象类型
     serverAssertWithInfo(NULL,a,a->type == OBJ_STRING && b->type == OBJ_STRING);
     char bufa[128], bufb[128], *astr, *bstr;
     size_t alen, blen, minlen;
 
-    if (a == b) return 0;
+	//检测两个字符串对象是否是同一个对象
+    if (a == b) 
+		//直接返回相同标识
+		return 0;
+	
+	//处理a字符串对象数据
     if (sdsEncodedObject(a)) {
+		//如果是指向字符串值的两种OBJ_ENCODING_EMBSTR或OBJ_ENCODING_RAW的两类对象
+		//获取真实的字符串内容指向
         astr = a->ptr;
+		//获取对应的字符串的长度值
         alen = sdslen(astr);
     } else {
+		//如果是整数类型的OBJ_ENCODING_INT编码 转换为字符串
         alen = ll2string(bufa,sizeof(bufa),(long) a->ptr);
         astr = bufa;
     }
+
+	//处理b字符串对象数据
     if (sdsEncodedObject(b)) {
         bstr = b->ptr;
         blen = sdslen(bstr);
@@ -531,195 +679,292 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
         blen = ll2string(bufb,sizeof(bufb),(long) b->ptr);
         bstr = bufb;
     }
+	
     if (flags & REDIS_COMPARE_COLL) {
+		//以本地指定的字符次序进行比较
+		//strcoll()会依环境变量LC_COLLATE所指定的文字排列次序来比较两字符串
         return strcoll(astr,bstr);
     } else {
+    	 //以二进制方式进行比较
         int cmp;
-
+		//获取最小字符串长度值
         minlen = (alen < blen) ? alen : blen;
+		//以最小长度值范围来比较两个字符串内容是否相同--->相等返回0，否则返回第一个字符串和第二个字符串的长度差
         cmp = memcmp(astr,bstr,minlen);
-        if (cmp == 0) return alen-blen;
+		//检测是否相同
+        if (cmp == 0) 
+			//进一步检测字符串长度是否相同
+			return alen-blen;
+		//返回两个字符串大小之间的关系值
         return cmp;
     }
 }
 
 /* Wrapper for compareStringObjectsWithFlags() using binary comparison. */
+/* 以二进制的方式进行两个字符串对象的比较 */
 int compareStringObjects(robj *a, robj *b) {
     return compareStringObjectsWithFlags(a,b,REDIS_COMPARE_BINARY);
 }
 
 /* Wrapper for compareStringObjectsWithFlags() using collation. */
+/* 以指定的字符次序进行两个字符串对象的比较 */
 int collateStringObjects(robj *a, robj *b) {
     return compareStringObjectsWithFlags(a,b,REDIS_COMPARE_COLL);
 }
 
-/* Equal string objects return 1 if the two objects are the same from the
- * point of view of a string comparison, otherwise 0 is returned. Note that
- * this function is faster then checking for (compareStringObject(a,b) == 0)
- * because it can perform some more optimization. */
+/* Equal string objects return 1 if the two objects are the same from the point of view of a string comparison, otherwise 0 is returned. Note that
+ * this function is faster then checking for (compareStringObject(a,b) == 0) because it can perform some more optimization. */
+/* 比较两个字符串对象，以二进制安全的方式进行比较 */
 int equalStringObjects(robj *a, robj *b) {
-    if (a->encoding == OBJ_ENCODING_INT &&
-        b->encoding == OBJ_ENCODING_INT){
-        /* If both strings are integer encoded just check if the stored
-         * long is the same. */
+	//如果两个对象的编码方式都是整型类型
+	if (a->encoding == OBJ_ENCODING_INT && b->encoding == OBJ_ENCODING_INT){
+        /* If both strings are integer encoded just check if the stored long is the same. */
+		//直接比较两个整数值
         return a->ptr == b->ptr;
     } else {
+    	//否则进行二进制方式比较字符串
         return compareStringObjects(a,b) == 0;
     }
 }
 
+/* 获取对应的字符串对象的长度值 */
 size_t stringObjectLen(robj *o) {
+	//检测对应的对象类型是否是字符串类型对象
     serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
+	//检测是否是字符串类型的数据
     if (sdsEncodedObject(o)) {
+		//获取对应的字符串长度值
         return sdslen(o->ptr);
     } else {
+    	//获取对应的整数类型对应的字符串长度值
         return sdigits10((long)o->ptr);
     }
 }
 
+/* 下面提供的一组函数是在给定的字符串对象上获取对应的数值类型的数据 */
+
+/* 从对象中将字符串值转换为double并存储在target中 */
 int getDoubleFromObject(const robj *o, double *target) {
     double value;
     char *eptr;
-
+	
+	//检测给定的对象是否存在
     if (o == NULL) {
+		//直接设置为0值
         value = 0;
     } else {
+    	//检测是否是字符串类型的数据 --->  因为只有对应的字符串对象才能进行转换处理 其他类型对象不能进行转换操作
         serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
+		//检测是否是字符串编码的两种类型
         if (sdsEncodedObject(o)) {
             errno = 0;
+			//将字符串转换为double类型
             value = strtod(o->ptr, &eptr);
-            if (sdslen(o->ptr) == 0 ||
-                isspace(((const char*)o->ptr)[0]) ||
+			//检测转换后的数据是否合法
+            if (sdslen(o->ptr) == 0 || isspace(((const char*)o->ptr)[0]) ||
                 (size_t)(eptr-(char*)o->ptr) != sdslen(o->ptr) ||
-                (errno == ERANGE &&
-                    (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
+                (errno == ERANGE && (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
                 isnan(value))
+                //返回获取数值失败的错误标识
                 return C_ERR;
         } else if (o->encoding == OBJ_ENCODING_INT) {
+			//保存整数值
             value = (long)o->ptr;
         } else {
+			//其他类型编码错误
             serverPanic("Unknown string encoding");
         }
     }
+	//将值存到传入参数中
     *target = value;
+	//返回获取数值成功的成功标识
     return C_OK;
 }
 
+/* 从对象中将字符串值转换为double并存储在target中，若失败发送信息给客户端 */
 int getDoubleFromObjectOrReply(client *c, robj *o, double *target, const char *msg) {
     double value;
+	//进行尝试转换操作处理
     if (getDoubleFromObject(o, &value) != C_OK) {
         if (msg != NULL) {
+			//msg不为空,发送指定的msg给客户端
             addReplyError(c,(char*)msg);
         } else {
+        	//发送默认的错误信息
             addReplyError(c,"value is not a valid float");
         }
+		//返回获取数值失败的错误标识
         return C_ERR;
     }
+	//将转换成功的值存到传入参数中
     *target = value;
+	//返回获取数值成功的成功标识
     return C_OK;
 }
 
+/* 从对象中将字符串值转换为long double并存储在target中 */
 int getLongDoubleFromObject(robj *o, long double *target) {
     long double value;
     char *eptr;
-
+	
+	//检测给定的对象是否存在
     if (o == NULL) {
+		//直接设置为0值
         value = 0;
     } else {
+    	//检测是否是字符串类型的数据 --->  因为只有对应的字符串对象才能进行转换处理 其他类型对象不能进行转换操作
         serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
-        if (sdsEncodedObject(o)) {
+		//检测是否是字符串编码的两种类型
+		if (sdsEncodedObject(o)) {
             errno = 0;
+			//将字符串转换为long double类型
             value = strtold(o->ptr, &eptr);
-            if (sdslen(o->ptr) == 0 ||
-                isspace(((const char*)o->ptr)[0]) ||
+			//检测转换后的数据是否合法
+            if (sdslen(o->ptr) == 0 || isspace(((const char*)o->ptr)[0]) ||
                 (size_t)(eptr-(char*)o->ptr) != sdslen(o->ptr) ||
-                (errno == ERANGE &&
-                    (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
+                (errno == ERANGE && (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
                 isnan(value))
+                //返回转换为数值失败标识
                 return C_ERR;
         } else if (o->encoding == OBJ_ENCODING_INT) {
+			//整数编码,保存整数值
             value = (long)o->ptr;
         } else {
+			//其他类型编码错误
             serverPanic("Unknown string encoding");
         }
     }
+	//将值存到传入参数中
     *target = value;
+	//返回转换为数值成功标识
     return C_OK;
 }
 
+/* 将字符串对象中字符串转换为long double并存储在target中，若失败发送失败信息给客户端 */
 int getLongDoubleFromObjectOrReply(client *c, robj *o, long double *target, const char *msg) {
     long double value;
+	//进行尝试转换操作处理
     if (getLongDoubleFromObject(o, &value) != C_OK) {
+		//检测是否配置了错误信息
         if (msg != NULL) {
+			//向客户端发送配置的错误信息
             addReplyError(c,(char*)msg);
         } else {
+        	//想客户端发送默认的错误信息
             addReplyError(c,"value is not a valid float");
         }
+		//返回获取数值失败标识
         return C_ERR;
     }
+	//将转换成功的值存到传入参数中
     *target = value;
+	//返回获取数值成功标识
     return C_OK;
 }
 
+/* 本函数是获取对象中存储的整数数据的核心处理函数------>即真正完成从对象中获取记录的整数值 */
 int getLongLongFromObject(robj *o, long long *target) {
     long long value;
-
+	//检测给定的对象是否为空
     if (o == NULL) {
+		//直接设置0值
         value = 0;
     } else {
+    	//检测给定的对象是否是字符串类型的对象
         serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
+		//检测对应的数据是否是字符串编码类型的对象
         if (sdsEncodedObject(o)) {
-            if (string2ll(o->ptr,sdslen(o->ptr),&value) == 0) return C_ERR;
+			//尝试将字符串类型数据转化成对应的整数类型数据--------->这个地方是尝试进行转换操作处理------>本函数的核心操作
+            if (string2ll(o->ptr,sdslen(o->ptr),&value) == 0)
+				//返回转换失败的标识
+				return C_ERR;
         } else if (o->encoding == OBJ_ENCODING_INT) {
+         	//直接获取存储的整数数据
             value = (long)o->ptr;
         } else {
+			//其他类型的数据对象错误
             serverPanic("Unknown string encoding");
         }
     }
-    if (target) *target = value;
+	
+	//检测是否配置了对应的存储数据的空间
+    if (target) 
+		//设置获取到的整数数据
+		*target = value;
+
+	//返回获取整数数据成功的标识
     return C_OK;
 }
 
+/* 本函数在获取对象中整数数据函数的基础上添加了数据获取失败直接向客户端进行响应的处理------>即在获取整数失败时向客户端进行发送失败原因 */
 int getLongLongFromObjectOrReply(client *c, robj *o, long long *target, const char *msg) {
     long long value;
+	//调用获取对象中整数数据的核心处理函数进行获取整数数据
     if (getLongLongFromObject(o, &value) != C_OK) {
+		//检测是否配置了失败消息
         if (msg != NULL) {
+			//向对应的客户端返回配置的获取整数数据失败的原因
             addReplyError(c,(char*)msg);
         } else {
+        	//向客户端返回默认的获取整数数据失败的原因
             addReplyError(c,"value is not an integer or out of range");
         }
+		//返回获取对应的整数数据失败的错误标识
         return C_ERR;
     }
+	//记录获取到的整数数据
     *target = value;
+	//返回获取数据成功的标识
     return C_OK;
 }
 
+/* 从对应的对象中获取一个整数数据,如果获取失败直接向对应的客户端响应获取数据失败,以及失败的原因 */
 int getLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg) {
-    long long value;
-
-    if (getLongLongFromObjectOrReply(c, o, &value, msg) != C_OK) return C_ERR;
+	//定义变量,用于存储对应的整数值
+	long long value;
+	
+	//获取对应对象的整数值------>此处调用的函数具有获取数据失败直接进行响应客户端失败原因的功能
+    if (getLongLongFromObjectOrReply(c, o, &value, msg) != C_OK) 
+		return C_ERR;
+	
+	//检测获取的整数值是否超过的对应的范围---->本函数在核心函数的功能上添加了对获取的整数进行范围是否越界的判断处理
     if (value < LONG_MIN || value > LONG_MAX) {
-        if (msg != NULL) {
+		//检测是否配置了需要发送失败的消息
+		if (msg != NULL) {
+			//向客户端发送获取对应整数数据失败的原因
             addReplyError(c,(char*)msg);
         } else {
+        	//向客户端发送获取整数数据失败的原因是给定的整数范围超出了范围
             addReplyError(c,"value is out of range");
         }
+		//返回获取对应整数数据失败的错误标识
         return C_ERR;
     }
+	//记录获取到的整数数据
     *target = value;
+	//返回获取对应整数数据的正确标识
     return C_OK;
 }
 
+/* 获取编码类型对象的字符串值 */
 char *strEncoding(int encoding) {
     switch(encoding) {
-    case OBJ_ENCODING_RAW: return "raw";
-    case OBJ_ENCODING_INT: return "int";
-    case OBJ_ENCODING_HT: return "hashtable";
-    case OBJ_ENCODING_QUICKLIST: return "quicklist";
-    case OBJ_ENCODING_ZIPLIST: return "ziplist";
-    case OBJ_ENCODING_INTSET: return "intset";
-    case OBJ_ENCODING_SKIPLIST: return "skiplist";
-    case OBJ_ENCODING_EMBSTR: return "embstr";
+    case OBJ_ENCODING_RAW: 
+		return "raw";
+    case OBJ_ENCODING_INT: 
+		return "int";
+    case OBJ_ENCODING_HT: 
+		return "hashtable";
+    case OBJ_ENCODING_QUICKLIST: 
+		return "quicklist";
+    case OBJ_ENCODING_ZIPLIST: 
+		return "ziplist";
+    case OBJ_ENCODING_INTSET: 
+		return "intset";
+    case OBJ_ENCODING_SKIPLIST: 
+		return "skiplist";
+    case OBJ_ENCODING_EMBSTR: 
+		return "embstr";
     default: return "unknown";
     }
 }
@@ -877,8 +1122,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
 
         /* Consumer groups also have a non trivial memory overhead if there
          * are many consumers and many groups, let's count at least the
-         * overhead of the pending entries in the groups and consumers
-         * PELs. */
+         * overhead of the pending entries in the groups and consumers PELs. */
         if (s->cgroups) {
             raxStart(&ri,s->cgroups);
             raxSeek(&ri,"^",NULL,0);
@@ -888,8 +1132,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
                 asize += streamRadixTreeMemoryUsage(cg->pel);
                 asize += sizeof(streamNACK)*raxSize(cg->pel);
 
-                /* For each consumer we also need to add the basic data
-                 * structures and the PEL memory usage. */
+                /* For each consumer we also need to add the basic data structures and the PEL memory usage. */
                 raxIterator cri;
                 raxStart(&cri,cg->consumers);
                 raxSeek(&cri,"^",NULL,0);
@@ -898,8 +1141,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
                     asize += sizeof(*consumer);
                     asize += sdslen(consumer->name);
                     asize += streamRadixTreeMemoryUsage(consumer->pel);
-                    /* Don't count NACKs again, they are shared with the
-                     * consumer group PEL. */
+                    /* Don't count NACKs again, they are shared with the consumer group PEL. */
                 }
                 raxStop(&cri);
             }
@@ -1182,8 +1424,7 @@ sds getMemoryDoctorReport(void) {
  * The lru_idle and lru_clock args are only relevant if policy
  * is MAXMEMORY_FLAG_LRU.
  * Either or both of them may be <0, in that case, nothing is set. */
-void objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
-                       long long lru_clock) {
+void objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle, long long lru_clock) {
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         if (lfu_freq >= 0) {
             serverAssert(lfu_freq <= 255);
@@ -1209,8 +1450,7 @@ void objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 
 /* ======================= The OBJECT and MEMORY commands =================== */
 
-/* This is a helper function for the OBJECT command. We need to lookup keys
- * without any modification of LRU or other parameters. */
+/* This is a helper function for the OBJECT command. We need to lookup keys without any modification of LRU or other parameters. */
 robj *objectCommandLookup(client *c, robj *key) {
     dictEntry *de;
 
@@ -1441,3 +1681,8 @@ NULL
         addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try MEMORY HELP", (char*)c->argv[1]->ptr);
     }
 }
+
+
+
+
+

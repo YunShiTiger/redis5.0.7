@@ -8,12 +8,9 @@
  * Set Commands
  *----------------------------------------------------------------------------*/
 
-void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
-                              robj *dstkey, int op);
+void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum, robj *dstkey, int op);
 
-/* Factory method to return a set that *can* hold "value". When the object has
- * an integer-encodable value, an intset will be returned. Otherwise a regular
- * hash table. */
+/* Factory method to return a set that *can* hold "value". When the object has an integer-encodable value, an intset will be returned. Otherwise a regular hash table. */
 robj *setTypeCreate(sds value) {
     if (isSdsRepresentableAsLongLong(value,NULL) == C_OK)
         return createIntsetObject();
@@ -21,9 +18,7 @@ robj *setTypeCreate(sds value) {
 }
 
 /* Add the specified value into a set.
- *
- * If the value was already member of the set, nothing is done and 0 is
- * returned, otherwise the new element is added and 1 is returned. */
+ * If the value was already member of the set, nothing is done and 0 is returned, otherwise the new element is added and 1 is returned. */
 int setTypeAdd(robj *subject, sds value) {
     long long llval;
     if (subject->encoding == OBJ_ENCODING_HT) {
@@ -39,8 +34,7 @@ int setTypeAdd(robj *subject, sds value) {
             uint8_t success = 0;
             subject->ptr = intsetAdd(subject->ptr,llval,&success);
             if (success) {
-                /* Convert to regular set when the intset contains
-                 * too many entries. */
+                /* Convert to regular set when the intset contains too many entries. */
                 if (intsetLen(subject->ptr) > server.set_max_intset_entries)
                     setTypeConvert(subject,OBJ_ENCODING_HT);
                 return 1;
@@ -49,8 +43,7 @@ int setTypeAdd(robj *subject, sds value) {
             /* Failed to get integer from object, convert to regular set. */
             setTypeConvert(subject,OBJ_ENCODING_HT);
 
-            /* The set *was* an intset and this value is not integer
-             * encodable, so dictAdd should always work. */
+            /* The set *was* an intset and this value is not integer encodable, so dictAdd should always work. */
             serverAssert(dictAdd(subject->ptr,sdsdup(value),NULL) == DICT_OK);
             return 1;
         }

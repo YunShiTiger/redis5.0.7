@@ -586,13 +586,14 @@ typedef struct RedisModuleDigest {
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
 #define LRU_CLOCK_RESOLUTION 1000 /* LRU clock resolution in ms */
 
+//用于标识对象是否是引用计数的标识---->即一个最大的整数值
 #define OBJ_SHARED_REFCOUNT INT_MAX
+
+/* redis中提供的对象结构类型 */
 typedef struct redisObject {
     unsigned type:4;
     unsigned encoding:4;
-    unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
-                            * LFU data (least significant 8 bits frequency
-                            * and most significant 16 bits access time). */
+    unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or LFU data (least significant 8 bits frequency and most significant 16 bits access time). */
     int refcount;
     void *ptr;
 } robj;
@@ -1563,6 +1564,8 @@ int collateStringObjects(robj *a, robj *b);
 int equalStringObjects(robj *a, robj *b);
 unsigned long long estimateObjectIdleTime(robj *o);
 void trimStringObjectIfNeeded(robj *o);
+
+//检测对应的字符串对象是否是OBJ_ENCODING_RAW和OBJ_ENCODING_EMBSTR类型 即对应的字符串对象不是整数类型
 #define sdsEncodedObject(objptr) (objptr->encoding == OBJ_ENCODING_RAW || objptr->encoding == OBJ_ENCODING_EMBSTR)
 
 /* Synchronous I/O with timeout */
@@ -2155,3 +2158,10 @@ void xorDigest(unsigned char *digest, void *ptr, size_t len);
     printf("-- MARK %s:%d --\n", __FILE__, __LINE__)
 
 #endif
+
+
+
+
+
+
+

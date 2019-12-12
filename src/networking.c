@@ -156,7 +156,8 @@ client *createClient(int fd) {
     c->client_list_node = NULL;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
-    if (fd != -1) linkClient(c);
+    if (fd != -1) 
+		linkClient(c);
     initClientMultiState(c);
     return c;
 }

@@ -543,10 +543,19 @@ void appendCommand(client *c) {
     addReplyLongLong(c,totlen);
 }
 
+/*
+ * 用于获取指定 key 所对应的字符串值对象的长度。当 key 储存的不是字符串值对象时，返回一个类型错误
+ * 命令格式
+ *     STRLEN KEY_NAME
+ * 返回值
+ *     字符串值对象的长度。 当 key 不存在时，返回 0。
+ */
 void strlenCommand(client *c) {
     robj *o;
+	//检测对应键所对应的值对象是否存在,且对应的值对象是否是字符串类型对象
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL || checkType(c,o,OBJ_STRING)) 
 		return;
+	//向客户端返回当前字符串对象的长度值信息
     addReplyLongLong(c,stringObjectLen(o));
 }
 
