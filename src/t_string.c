@@ -12,10 +12,12 @@
 /* 检测对应的字符串长度是否超过了预设的最大值 512MB */
 static int checkStringLength(client *c, long long size) {
     if (size > 512*1024*1024) {
-		//想对应的客户端返回错误信息
+		//向对应的客户端返回错误信息
         addReplyError(c,"string exceeds maximum allowed size (512MB)");
+		//返回对应的错误标识
         return C_ERR;
     }
+	//返回对应的正确标识
     return C_OK;
 }
 

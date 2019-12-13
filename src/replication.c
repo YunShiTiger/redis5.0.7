@@ -169,8 +169,7 @@ void feedReplicationBacklogWithObject(robj *o) {
 /* Propagate write commands to slaves, and populate the replication backlog
  * as well. This function is used if the instance is a master: we use
  * the commands received by our clients in order to create the replication
- * stream. Instead if the instance is a slave and has sub-slaves attached,
- * we use replicationFeedSlavesFromMaster() */
+ * stream. Instead if the instance is a slave and has sub-slaves attached, we use replicationFeedSlavesFromMaster() */
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     listNode *ln;
     listIter li;

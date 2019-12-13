@@ -294,8 +294,7 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
  * --------------------------------------------------------------------------*/
 
 /* Return the current time in minutes, just taking the least significant
- * 16 bits. The returned time is suitable to be stored as LDT (last decrement
- * time) for the LFU implementation. */
+ * 16 bits. The returned time is suitable to be stored as LDT (last decrement time) for the LFU implementation. */
 unsigned long LFUGetTimeInMinutes(void) {
     return (server.unixtime/60) & 65535;
 }
@@ -310,15 +309,17 @@ unsigned long LFUTimeElapsed(unsigned long ldt) {
     return 65535-ldt+now;
 }
 
-/* Logarithmically increment a counter. The greater is the current counter value
- * the less likely is that it gets really implemented. Saturate it at 255. */
+/* Logarithmically increment a counter. The greater is the current counter value the less likely is that it gets really implemented. Saturate it at 255. */
 uint8_t LFULogIncr(uint8_t counter) {
-    if (counter == 255) return 255;
+    if (counter == 255) 
+		return 255;
     double r = (double)rand()/RAND_MAX;
     double baseval = counter - LFU_INIT_VAL;
-    if (baseval < 0) baseval = 0;
+    if (baseval < 0) 
+		baseval = 0;
     double p = 1.0/(baseval*server.lfu_log_factor+1);
-    if (r < p) counter++;
+    if (r < p) 
+		counter++;
     return counter;
 }
 
@@ -330,8 +331,7 @@ uint8_t LFULogIncr(uint8_t counter) {
  * Return the object frequency counter.
  *
  * This function is used in order to scan the dataset for the best object
- * to fit: as we check for the candidate, we incrementally decrement the
- * counter of the scanned objects if needed. */
+ * to fit: as we check for the candidate, we incrementally decrement the counter of the scanned objects if needed. */
 unsigned long LFUDecrAndReturn(robj *o) {
     unsigned long ldt = o->lru >> 8;
     unsigned long counter = o->lru & 255;

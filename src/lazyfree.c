@@ -103,8 +103,7 @@ void freeObjAsync(robj *o) {
 }
 
 /* Empty a Redis DB asynchronously. What the function does actually is to
- * create a new empty set of hash tables and scheduling the old ones for
- * lazy freeing. */
+ * create a new empty set of hash tables and scheduling the old ones for lazy freeing. */
 void emptyDbAsync(redisDb *db) {
     dict *oldht1 = db->dict, *oldht2 = db->expires;
     db->dict = dictCreate(&dbDictType,NULL);
@@ -113,14 +112,11 @@ void emptyDbAsync(redisDb *db) {
     bioCreateBackgroundJob(BIO_LAZY_FREE,NULL,oldht1,oldht2);
 }
 
-/* Empty the slots-keys map of Redis CLuster by creating a new empty one
- * and scheduiling the old for lazy freeing. */
+/* Empty the slots-keys map of Redis CLuster by creating a new empty one and scheduiling the old for lazy freeing. */
 void slotToKeyFlushAsync(void) {
     rax *old = server.cluster->slots_to_keys;
-
     server.cluster->slots_to_keys = raxNew();
-    memset(server.cluster->slots_keys_count,0,
-           sizeof(server.cluster->slots_keys_count));
+    memset(server.cluster->slots_keys_count,0,sizeof(server.cluster->slots_keys_count));
     atomicIncr(lazyfree_objects,old->numele);
     bioCreateBackgroundJob(BIO_LAZY_FREE,NULL,NULL,old);
 }
@@ -151,3 +147,6 @@ void lazyfreeFreeSlotsMapFromBioThread(rax *rt) {
     raxFree(rt);
     atomicDecr(lazyfree_objects,len);
 }
+
+
+

@@ -619,19 +619,15 @@ void addReplyHelp(client *c, const char **help) {
 }
 
 /* Add a suggestive error reply.
- * This function is typically invoked by from commands that support
- * subcommands in response to an unknown subcommand or argument error. */
+ * This function is typically invoked by from commands that support subcommands in response to an unknown subcommand or argument error. */
 void addReplySubcommandSyntaxError(client *c) {
     sds cmd = sdsnew((char*) c->argv[0]->ptr);
     sdstoupper(cmd);
-    addReplyErrorFormat(c,
-        "Unknown subcommand or wrong number of arguments for '%s'. Try %s HELP.",
-        (char*)c->argv[1]->ptr,cmd);
+    addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try %s HELP.", (char*)c->argv[1]->ptr,cmd);
     sdsfree(cmd);
 }
 
-/* Append 'src' client output buffers into 'dst' client output buffers. 
- * This function clears the output buffers of 'src' */
+/* Append 'src' client output buffers into 'dst' client output buffers. This function clears the output buffers of 'src' */
 void AddReplyFromClient(client *dst, client *src) {
     if (prepareClientToWrite(dst) != C_OK)
         return;
@@ -2246,3 +2242,8 @@ int processEventsWhileBlocked(void) {
     }
     return count;
 }
+
+
+
+
+

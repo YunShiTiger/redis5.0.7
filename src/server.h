@@ -67,6 +67,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CRON_DBS_PER_CALL 16
 #define NET_MAX_WRITES_PER_EVENT (1024*64)
 #define PROTO_SHARED_SELECT_CMDS 10
+//用于记录整数字符串可共享的数据范围   --->即 0-10000内的整数字符串都是共享的
 #define OBJ_SHARED_INTEGERS 10000
 #define OBJ_SHARED_BULKHDR_LEN 32
 #define LOG_MAX_LEN    1024 /* Default maximum length of syslog messages.*/
@@ -1255,7 +1256,7 @@ struct redisServer {
     int lua_always_replicate_commands; /* Default replication type. */
     /* Lazy free */
     int lazyfree_lazy_eviction;
-    int lazyfree_lazy_expire;
+    int lazyfree_lazy_expire;    //redis服务 进行同步删除或者异步删除过期键的配置标识
     int lazyfree_lazy_server_del;
     /* Latency monitor */
     long long latency_monitor_threshold;
