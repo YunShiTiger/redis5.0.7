@@ -36,8 +36,7 @@
 /* TBD: include only necessary headers. */
 #include "server.h"
 
-/* The current RDB version. When the format changes in a way that is no longer
- * backward compatible this number gets incremented. */
+/* The current RDB version. When the format changes in a way that is no longer backward compatible this number gets incremented. */
 #define RDB_VERSION 9
 
 /* Defines related to the dump file format. To store 32 bits lengths for short
@@ -101,10 +100,13 @@
 #define RDB_OPCODE_IDLE       248   /* LRU idle time. */
 #define RDB_OPCODE_FREQ       249   /* LFU frequency. */
 #define RDB_OPCODE_AUX        250   /* RDB aux field. */
+//数据库字典元素个数值类型 后续要写入 字典元素数量值 和 过期字典元素数量值
 #define RDB_OPCODE_RESIZEDB   251   /* Hash table resize hint. */
 #define RDB_OPCODE_EXPIRETIME_MS 252    /* Expire time in milliseconds. */
 #define RDB_OPCODE_EXPIRETIME 253       /* Old expire time in seconds. */
+//选择数据库索引类型
 #define RDB_OPCODE_SELECTDB   254   /* DB number of the following keys. */
+//数据库中的数据写入完成后 需要向rdb中写入的结束符
 #define RDB_OPCODE_EOF        255   /* End of the RDB file. */
 
 /* Module serialized values sub opcodes */
@@ -158,3 +160,10 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof);
 rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi);
 
 #endif
+
+
+
+
+
+
+

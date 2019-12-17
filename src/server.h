@@ -164,6 +164,8 @@ typedef long long ustime_t; /* microsecond time type. */
 #define PROTO_INLINE_MAX_SIZE   (1024*64) /* Max size of inline reads */
 #define PROTO_MBULK_BIG_ARG     (1024*32)
 #define LONG_STR_SIZE      21          /* Bytes needed for long -> str + '\0' */
+
+//触发将操作系统的缓存文件刷入到磁盘文件中的字节门限值
 #define REDIS_AUTOSYNC_BYTES (1024*1024*32) /* fdatasync every 32MB */
 
 #define LIMIT_PENDING_QUERYBUF (4*1024*1024) /* 4mb */
@@ -178,8 +180,7 @@ typedef long long ustime_t; /* microsecond time type. */
 //字典结构中hash表进行缩容的最小比例值
 #define HASHTABLE_MIN_FILL        10      /* Minimal hash table fill 10% */
 
-/* Command flags. Please check the command table defined in the redis.c file
- * for more information about the meaning of every flag. */
+/* Command flags. Please check the command table defined in the redis.c file for more information about the meaning of every flag. */
 #define CMD_WRITE (1<<0)            /* "w" flag */
 #define CMD_READONLY (1<<1)         /* "r" flag */
 #define CMD_DENYOOM (1<<2)          /* "m" flag */
@@ -203,15 +204,17 @@ typedef long long ustime_t; /* microsecond time type. */
 #define AOF_WAIT_REWRITE 2    /* AOF waits rewrite to start appending */
 
 /* Client flags */
+/* 客户端所处的状态信息 */
 #define CLIENT_SLAVE (1<<0)   /* This client is a slave server */
 #define CLIENT_MASTER (1<<1)  /* This client is a master server */
 #define CLIENT_MONITOR (1<<2) /* This client is a slave monitor, see MONITOR */
+//客户端处于
 #define CLIENT_MULTI (1<<3)   /* This client is in a MULTI context */
+//客户端处于堵塞状态标识
 #define CLIENT_BLOCKED (1<<4) /* The client is waiting in a blocking operation */
 #define CLIENT_DIRTY_CAS (1<<5) /* Watched keys modified. EXEC will fail. */
 #define CLIENT_CLOSE_AFTER_REPLY (1<<6) /* Close after writing entire reply. */
-#define CLIENT_UNBLOCKED (1<<7) /* This client was unblocked and is stored in
-                                  server.unblocked_clients */
+#define CLIENT_UNBLOCKED (1<<7) /* This client was unblocked and is stored in server.unblocked_clients */
 #define CLIENT_LUA (1<<8) /* This is a non connected client used by Lua */
 #define CLIENT_ASKING (1<<9)     /* Client issued the ASKING command */
 #define CLIENT_CLOSE_ASAP (1<<10)/* Close this client ASAP */
@@ -226,8 +229,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CLIENT_PREVENT_AOF_PROP (1<<19)  /* Don't propagate to AOF. */
 #define CLIENT_PREVENT_REPL_PROP (1<<20)  /* Don't propagate to slaves. */
 #define CLIENT_PREVENT_PROP (CLIENT_PREVENT_AOF_PROP|CLIENT_PREVENT_REPL_PROP)
-#define CLIENT_PENDING_WRITE (1<<21) /* Client has output to send but a write
-                                        handler is yet not installed. */
+#define CLIENT_PENDING_WRITE (1<<21) /* Client has output to send but a write handler is yet not installed. */
 #define CLIENT_REPLY_OFF (1<<22)   /* Don't send replies to client. */
 #define CLIENT_REPLY_SKIP_NEXT (1<<23)  /* Set CLIENT_REPLY_SKIP for next cmd */
 #define CLIENT_REPLY_SKIP (1<<24)  /* Don't send just this reply. */
@@ -236,8 +238,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CLIENT_MODULE (1<<27) /* Non connected client used by some module. */
 #define CLIENT_PROTECTED (1<<28) /* Client should not be freed for now. */
 
-/* Client block type (btype field in client structure)
- * if CLIENT_BLOCKED flag is set. */
+/* Client block type (btype field in client structure) if CLIENT_BLOCKED flag is set. */
 #define BLOCKED_NONE 0    /* Not blocked, no CLIENT_BLOCKED flag set. */
 #define BLOCKED_LIST 1    /* BLPOP & co. */
 #define BLOCKED_WAIT 2    /* WAIT for synchronous replication. */
@@ -383,8 +384,7 @@ typedef long long ustime_t; /* microsecond time type. */
 
 /* SHUTDOWN flags */
 #define SHUTDOWN_NOFLAGS 0      /* No flags. */
-#define SHUTDOWN_SAVE 1         /* Force SAVE on SHUTDOWN even if no save
-                                   points are configured. */
+#define SHUTDOWN_SAVE 1         /* Force SAVE on SHUTDOWN even if no save points are configured. */
 #define SHUTDOWN_NOSAVE 2       /* Don't SAVE on SHUTDOWN. */
 
 /* Command call flags, see call() function */
@@ -872,13 +872,11 @@ struct redisMemOverhead {
 };
 
 /* This structure can be optionally passed to RDB save/load functions in
- * order to implement additional functionalities, by storing and loading
- * metadata to the RDB file.
+ * order to implement additional functionalities, by storing and loading metadata to the RDB file.
  *
  * Currently the only use is to select a DB at load time, useful in
  * replication in order to make sure that chained slaves (slaves of slaves)
- * select the correct DB and are able to accept the stream coming from the
- * top-level master. */
+ * select the correct DB and are able to accept the stream coming from the top-level master. */
 typedef struct rdbSaveInfo {
     /* Used saving and loading. */
     int repl_stream_db;  /* DB to select in server.master client. */
@@ -927,7 +925,9 @@ struct redisServer {
                                    is enabled. */
     int hz;                     /* serverCron() calls frequency in hertz */
     redisDb *db;
+	//用于存储redis服务提供的命令字典结构(命令改名后的命令集合) 使用字典结构可以根据提供的命令名称查找对应的命令
     dict *commands;             /* Command table */
+	//用于存储redis服务提供的命令字典结构(命令未改名前的命令集合)
     dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;
     unsigned int lruclock;      /* Clock for LRU eviction */
@@ -939,6 +939,7 @@ struct redisServer {
     int arch_bits;              /* 32 or 64 depending on sizeof(long) */
     int cronloops;              /* Number of times the cron function run */
     char runid[CONFIG_RUN_ID_SIZE+1];  /* ID always different at every exec. */
+	//用于表示启动的服务是否是哨兵模式
     int sentinel_mode;          /* True if this instance is a Sentinel. */
     size_t initial_memory_usage; /* Bytes used after initialization. */
     int always_show_logo;       /* Show logo even for non-stdout logging. */
@@ -982,11 +983,8 @@ struct redisServer {
     time_t loading_start_time;
     off_t loading_process_events_interval_bytes;
     /* Fast pointers to often looked up command */
-    struct redisCommand *delCommand, *multiCommand, *lpushCommand,
-                        *lpopCommand, *rpopCommand, *zpopminCommand,
-                        *zpopmaxCommand, *sremCommand, *execCommand,
-                        *expireCommand, *pexpireCommand, *xclaimCommand,
-                        *xgroupCommand;
+	//用于记录redis中查用的命令
+    struct redisCommand *delCommand, *multiCommand, *lpushCommand, *lpopCommand, *rpopCommand, *zpopminCommand, *zpopmaxCommand, *sremCommand, *execCommand, *expireCommand, *pexpireCommand, *xclaimCommand, *xgroupCommand;
     /* Fields used only for stats */
     time_t stat_starttime;          /* Server start time */
     long long stat_numcommands;     /* Number of processed commands */
@@ -1047,6 +1045,7 @@ struct redisServer {
     /* AOF persistence */
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
     int aof_fsync;                  /* Kind of fsync() policy */
+	//redis服务中aof方式存储数据的文件路径
     char *aof_filename;             /* Name of the AOF file */
     int aof_no_fsync_on_rewrite;    /* Don't fsync if a rewrite is in prog. */
     int aof_rewrite_perc;           /* Rewrite AOF if % growth is > M and... */
@@ -1067,6 +1066,7 @@ struct redisServer {
     int aof_lastbgrewrite_status;   /* C_OK or C_ERR */
     unsigned long aof_delayed_fsync;  /* delayed AOF fsync() counter */
     int aof_rewrite_incremental_fsync;/* fsync incrementally while aof rewriting? */
+	//在进行rdb保存时是否设置开启大于字节门限值触发sync操作处理标识
     int rdb_save_incremental_fsync;   /* fsync incrementally while rdb saving? */
     int aof_last_write_status;      /* C_OK or C_ERR */
     int aof_last_write_errno;       /* Valid if aof_last_write_status is ERR */
@@ -1088,6 +1088,7 @@ struct redisServer {
     pid_t rdb_child_pid;            /* PID of RDB saving child */
     struct saveparam *saveparams;   /* Save points array for RDB */
     int saveparamslen;              /* Number of saving points */
+	//redis服务用于保存rdb文件的名称
     char *rdb_filename;             /* Name of RDB file */
     int rdb_compression;            /* Use compression in RDB? */
     int rdb_checksum;               /* Use RDB checksum? */
@@ -1824,8 +1825,8 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply);
 robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags);
 robj *objectCommandLookup(client *c, robj *key);
 robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply);
-void objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
-                       long long lru_clock);
+void objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle, long long lru_clock);
+
 #define LOOKUP_NONE 0
 #define LOOKUP_NOTOUCH (1<<0)
 void dbAdd(redisDb *db, robj *key, robj *val);

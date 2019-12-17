@@ -12,36 +12,6 @@
  * It is also possible to set a 'checksum' method that is used by rio.c in order
  * to compute a checksum of the data written or read, or to query the rio object
  * for the current checksum.
- *
- * ----------------------------------------------------------------------------
- *
- * Copyright (c) 2009-2012, Pieter Noordhuis <pcnoordhuis at gmail dot com>
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
  */
 
 
@@ -106,19 +76,23 @@ void rioInitWithBuffer(rio *r, sds s) {
 /* --------------------- Stdio file pointer implementation ------------------- */
 
 /* Returns 1 or 0 for success/failure. */
+/* 通过rio结构 将对应的buffer中的数据写到对应的文件中 */
 static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
     size_t retval;
 
+	//将对应的数据写入到对应句柄的文件中---->如果对应文件来说 这个地方其实已经完成了 后续都是对rio结构对象的相关处理了
     retval = fwrite(buf,len,1,r->io.file.fp);
+	//增加未手动触发sync缓存的字节数量
     r->io.file.buffered += len;
-
-    if (r->io.file.autosync &&
-        r->io.file.buffered >= r->io.file.autosync)
-    {
+	//检测是否达到了触发sync门限值
+    if (r->io.file.autosync && r->io.file.buffered >= r->io.file.autosync) {
+		//到达门限手动触发进行操作系统中缓存的文件数据写入到文件中
         fflush(r->io.file.fp);
         redis_fsync(fileno(r->io.file.fp));
+		//重置当前缓存的字节数为0
         r->io.file.buffered = 0;
     }
+	//返回对应的写入结果 1 成功 0 失败
     return retval;
 }
 
@@ -132,8 +106,7 @@ static off_t rioFileTell(rio *r) {
     return ftello(r->io.file.fp);
 }
 
-/* Flushes any buffer to target device if applicable. Returns 1 on success
- * and 0 on failures. */
+/* Flushes any buffer to target device if applicable. Returns 1 on success and 0 on failures. */
 static int rioFileFlush(rio *r) {
     return (fflush(r->io.file.fp) == 0) ? 1 : 0;
 }
@@ -150,22 +123,25 @@ static const rio rioFileIO = {
     { { NULL, 0 } } /* union for io-specific vars */
 };
 
+/* 通过文件句柄来初始化对应的rio结构 即后期操作rio对象即是对对应的句柄文件进行操作处理 */
 void rioInitWithFile(rio *r, FILE *fp) {
+	//创建对应的文件类型的rio结构对象
     *r = rioFileIO;
+	//配置对应的文件句柄
     r->io.file.fp = fp;
+	//初始化对应的当前缓存的字节数量
     r->io.file.buffered = 0;
+	//记录触发sync的门限值
     r->io.file.autosync = 0;
 }
 
 /* ------------------- File descriptors set implementation ------------------- */
 
 /* Returns 1 or 0 for success/failure.
- * The function returns success as long as we are able to correctly write
- * to at least one file descriptor.
+ * The function returns success as long as we are able to correctly write to at least one file descriptor.
  *
  * When buf is NULL and len is 0, the function performs a flush operation
- * if there is some pending buffer, so this function is also used in order
- * to implement rioFdsetFlush(). */
+ * if there is some pending buffer, so this function is also used in order to implement rioFdsetFlush(). */
 static size_t rioFdsetWrite(rio *r, const void *buf, size_t len) {
     ssize_t retval;
     int j;
@@ -177,7 +153,8 @@ static size_t rioFdsetWrite(rio *r, const void *buf, size_t len) {
     if (len) {
         r->io.fdset.buf = sdscatlen(r->io.fdset.buf,buf,len);
         len = 0; /* Prevent entering the while below if we don't flush. */
-        if (sdslen(r->io.fdset.buf) > PROTO_IOBUF_LEN) doflush = 1;
+        if (sdslen(r->io.fdset.buf) > PROTO_IOBUF_LEN) 
+			doflush = 1;
     }
 
     if (doflush) {
@@ -185,9 +162,7 @@ static size_t rioFdsetWrite(rio *r, const void *buf, size_t len) {
         len = sdslen(r->io.fdset.buf);
     }
 
-    /* Write in little chunchs so that when there are big writes we
-     * parallelize while the kernel is sending data in background to
-     * the TCP socket. */
+    /* Write in little chunchs so that when there are big writes we parallelize while the kernel is sending data in background to the TCP socket. */
     while(len) {
         size_t count = len < 1024 ? len : 1024;
         int broken = 0;
@@ -204,11 +179,10 @@ static size_t rioFdsetWrite(rio *r, const void *buf, size_t len) {
             while(nwritten != count) {
                 retval = write(r->io.fdset.fds[j],p+nwritten,count-nwritten);
                 if (retval <= 0) {
-                    /* With blocking sockets, which is the sole user of this
-                     * rio target, EWOULDBLOCK is returned only because of
-                     * the SO_SNDTIMEO socket option, so we translate the error
-                     * into one more recognizable by the user. */
-                    if (retval == -1 && errno == EWOULDBLOCK) errno = ETIMEDOUT;
+                    /* With blocking sockets, which is the sole user of this rio target, EWOULDBLOCK is returned only because of
+                     * the SO_SNDTIMEO socket option, so we translate the error into one more recognizable by the user. */
+                    if (retval == -1 && errno == EWOULDBLOCK) 
+						errno = ETIMEDOUT;
                     break;
                 }
                 nwritten += retval;
@@ -220,13 +194,15 @@ static size_t rioFdsetWrite(rio *r, const void *buf, size_t len) {
                 if (r->io.fdset.state[j] == 0) r->io.fdset.state[j] = EIO;
             }
         }
-        if (broken == r->io.fdset.numfds) return 0; /* All the FDs in error. */
+        if (broken == r->io.fdset.numfds) 
+			return 0; /* All the FDs in error. */
         p += count;
         len -= count;
         r->io.fdset.pos += count;
     }
 
-    if (doflush) sdsclear(r->io.fdset.buf);
+    if (doflush) 
+		sdsclear(r->io.fdset.buf);
     return 1;
 }
 
@@ -270,7 +246,8 @@ void rioInitWithFdset(rio *r, int *fds, int numfds) {
     r->io.fdset.fds = zmalloc(sizeof(int)*numfds);
     r->io.fdset.state = zmalloc(sizeof(int)*numfds);
     memcpy(r->io.fdset.fds,fds,sizeof(int)*numfds);
-    for (j = 0; j < numfds; j++) r->io.fdset.state[j] = 0;
+    for (j = 0; j < numfds; j++) 
+		r->io.fdset.state[j] = 0;
     r->io.fdset.numfds = numfds;
     r->io.fdset.pos = 0;
     r->io.fdset.buf = sdsempty();
@@ -291,16 +268,15 @@ void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len) {
     r->cksum = crc64(r->cksum,buf,len);
 }
 
-/* Set the file-based rio object to auto-fsync every 'bytes' file written.
- * By default this is set to zero that means no automatic file sync is
- * performed.
+/* Set the file-based rio object to auto-fsync every 'bytes' file written. By default this is set to zero that means no automatic file sync is performed.
  *
- * This feature is useful in a few contexts since when we rely on OS write
- * buffers sometimes the OS buffers way too much, resulting in too many
- * disk I/O concentrated in very little time. When we fsync in an explicit
- * way instead the I/O pressure is more distributed across time. */
+ * This feature is useful in a few contexts since when we rely on OS write buffers sometimes the OS buffers way too much, resulting in too many
+ * disk I/O concentrated in very little time. When we fsync in an explicit way instead the I/O pressure is more distributed across time. */
+/* 设置进行触发sync将操作系统缓存的数据刷入到磁盘文件的字节门限值 */
 void rioSetAutoSync(rio *r, off_t bytes) {
+	//检测对应的rio类型是否是对应的文件操作类型
     serverAssert(r->read == rioFileIO.read);
+	//设置对应的刷新缓存的门限值
     r->io.file.autosync = bytes;
 }
 
@@ -349,3 +325,7 @@ size_t rioWriteBulkDouble(rio *r, double d) {
     dlen = snprintf(dbuf,sizeof(dbuf),"%.17g",d);
     return rioWriteBulkString(r,dbuf,dlen);
 }
+
+
+
+

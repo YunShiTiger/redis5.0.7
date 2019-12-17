@@ -1,5 +1,6 @@
 /*
- * 
+ * redis中集合命令的实现方式
+ * 	Set 是 String 类型的无序集合。集合成员是唯一的，这就意味着集合中不能出现重复的数据。
  */
 
 #include "server.h"
@@ -17,8 +18,7 @@ robj *setTypeCreate(sds value) {
     return createSetObject();
 }
 
-/* Add the specified value into a set.
- * If the value was already member of the set, nothing is done and 0 is returned, otherwise the new element is added and 1 is returned. */
+/* Add the specified value into a set. If the value was already member of the set, nothing is done and 0 is returned, otherwise the new element is added and 1 is returned. */
 int setTypeAdd(robj *subject, sds value) {
     long long llval;
     if (subject->encoding == OBJ_ENCODING_HT) {
@@ -64,7 +64,8 @@ int setTypeRemove(robj *setobj, sds value) {
         if (isSdsRepresentableAsLongLong(value,&llval) == C_OK) {
             int success;
             setobj->ptr = intsetRemove(setobj->ptr,llval,&success);
-            if (success) return 1;
+            if (success) 
+				return 1;
         }
     } else {
         serverPanic("Unknown set encoding");
@@ -122,7 +123,8 @@ void setTypeReleaseIterator(setTypeIterator *si) {
 int setTypeNext(setTypeIterator *si, sds *sdsele, int64_t *llele) {
     if (si->encoding == OBJ_ENCODING_HT) {
         dictEntry *de = dictNext(si->di);
-        if (de == NULL) return -1;
+        if (de == NULL) 
+			return -1;
         *sdsele = dictGetKey(de);
         *llele = -123456789; /* Not needed. Defensive. */
     } else if (si->encoding == OBJ_ENCODING_INTSET) {
@@ -149,7 +151,8 @@ sds setTypeNextObject(setTypeIterator *si) {
 
     encoding = setTypeNext(si,&sdsele,&intele);
     switch(encoding) {
-        case -1:    return NULL;
+        case -1:    
+			return NULL;
         case OBJ_ENCODING_INTSET:
             return sdsfromlonglong(intele);
         case OBJ_ENCODING_HT:
@@ -202,9 +205,7 @@ unsigned long setTypeSize(const robj *subject) {
  * set. */
 void setTypeConvert(robj *setobj, int enc) {
     setTypeIterator *si;
-    serverAssertWithInfo(NULL,setobj,setobj->type == OBJ_SET &&
-                             setobj->encoding == OBJ_ENCODING_INTSET);
-
+    serverAssertWithInfo(NULL,setobj,setobj->type == OBJ_SET && setobj->encoding == OBJ_ENCODING_INTSET);
     if (enc == OBJ_ENCODING_HT) {
         int64_t intele;
         dict *d = dictCreate(&setDictType,NULL);
@@ -245,7 +246,8 @@ void saddCommand(client *c) {
     }
 
     for (j = 2; j < c->argc; j++) {
-        if (setTypeAdd(set,c->argv[j]->ptr)) added++;
+        if (setTypeAdd(set,c->argv[j]->ptr)) 
+			added++;
     }
     if (added) {
         signalModifiedKey(c->db,c->argv[1]);
@@ -259,8 +261,8 @@ void sremCommand(client *c) {
     robj *set;
     int j, deleted = 0, keyremoved = 0;
 
-    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,set,OBJ_SET)) return;
+    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL || checkType(c,set,OBJ_SET)) 
+		return;
 
     for (j = 2; j < c->argc; j++) {
         if (setTypeRemove(set,c->argv[j]->ptr)) {
@@ -276,8 +278,7 @@ void sremCommand(client *c) {
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_SET,"srem",c->argv[1],c->db->id);
         if (keyremoved)
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],
-                                c->db->id);
+            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1], c->db->id);
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);
@@ -297,13 +298,12 @@ void smoveCommand(client *c) {
 
     /* If the source key has the wrong type, or the destination key
      * is set and has the wrong type, return with an error. */
-    if (checkType(c,srcset,OBJ_SET) ||
-        (dstset && checkType(c,dstset,OBJ_SET))) return;
+    if (checkType(c,srcset,OBJ_SET) || (dstset && checkType(c,dstset,OBJ_SET))) 
+        return;
 
     /* If srcset and dstset are equal, SMOVE is a no-op */
     if (srcset == dstset) {
-        addReply(c,setTypeIsMember(srcset,ele->ptr) ?
-            shared.cone : shared.czero);
+        addReply(c,setTypeIsMember(srcset,ele->ptr) ? shared.cone : shared.czero);
         return;
     }
 
@@ -341,8 +341,8 @@ void smoveCommand(client *c) {
 void sismemberCommand(client *c) {
     robj *set;
 
-    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,set,OBJ_SET)) return;
+    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL || checkType(c,set,OBJ_SET)) 
+		return;
 
     if (setTypeIsMember(set,c->argv[2]->ptr))
         addReply(c,shared.cone);
@@ -353,8 +353,8 @@ void sismemberCommand(client *c) {
 void scardCommand(client *c) {
     robj *o;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,o,OBJ_SET)) return;
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL || checkType(c,o,OBJ_SET)) 
+		return;
 
     addReplyLongLong(c,setTypeSize(o));
 }
@@ -363,8 +363,7 @@ void scardCommand(client *c) {
  * command is handled by the spopCommand() function itself. */
 
 /* How many times bigger should be the set compared to the remaining size
- * for us to use the "create new set" strategy? Read later in the
- * implementation for more info. */
+ * for us to use the "create new set" strategy? Read later in the implementation for more info. */
 #define SPOP_MOVE_STRATEGY_MUL 5
 
 void spopWithCountCommand(client *c) {
@@ -373,7 +372,8 @@ void spopWithCountCommand(client *c) {
     robj *set;
 
     /* Get the count argument */
-    if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) return;
+    if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) 
+		return;
     if (l >= 0) {
         count = (unsigned long) l;
     } else {
@@ -383,8 +383,8 @@ void spopWithCountCommand(client *c) {
 
     /* Make sure a key with the name inputted exists, and that it's type is
      * indeed a set. Otherwise, return nil */
-    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk))
-        == NULL || checkType(c,set,OBJ_SET)) return;
+    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL || checkType(c,set,OBJ_SET)) 
+		return;
 
     /* If count is zero, serve an empty multibulk ASAP to avoid special
      * cases later. */
@@ -418,8 +418,7 @@ void spopWithCountCommand(client *c) {
     }
 
     /* Case 2 and 3 require to replicate SPOP as a set of SREM commands.
-     * Prepare our replication argument vector. Also send the array length
-     * which is common to both the code paths. */
+     * Prepare our replication argument vector. Also send the array length which is common to both the code paths. */
     robj *propargv[3];
     propargv[0] = createStringObject("SREM",4);
     propargv[1] = c->argv[1];
@@ -455,8 +454,7 @@ void spopWithCountCommand(client *c) {
 
             /* Replicate/AOF this command as an SREM operation */
             propargv[2] = objele;
-            alsoPropagate(server.sremCommand,c->db->id,propargv,3,
-                PROPAGATE_AOF|PROPAGATE_REPL);
+            alsoPropagate(server.sremCommand,c->db->id,propargv,3,PROPAGATE_AOF|PROPAGATE_REPL);
             decrRefCount(objele);
         }
     } else {
@@ -498,8 +496,7 @@ void spopWithCountCommand(client *c) {
 
             /* Replicate/AOF this command as an SREM operation */
             propargv[2] = objele;
-            alsoPropagate(server.sremCommand,c->db->id,propargv,3,
-                PROPAGATE_AOF|PROPAGATE_REPL);
+            alsoPropagate(server.sremCommand,c->db->id,propargv,3,PROPAGATE_AOF|PROPAGATE_REPL);
             decrRefCount(objele);
         }
         setTypeReleaseIterator(si);
@@ -532,10 +529,9 @@ void spopCommand(client *c) {
         return;
     }
 
-    /* Make sure a key with the name inputted exists, and that it's type is
-     * indeed a set */
-    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
-        checkType(c,set,OBJ_SET)) return;
+    /* Make sure a key with the name inputted exists, and that it's type is indeed a set */
+    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk)) == NULL || checkType(c,set,OBJ_SET)) 
+		return;
 
     /* Get a random element from the set */
     encoding = setTypeRandomElement(set,&sdsele,&llele);
@@ -590,18 +586,18 @@ void srandmemberWithCountCommand(client *c) {
 
     dict *d;
 
-    if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) return;
+    if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) 
+		return;
     if (l >= 0) {
         count = (unsigned long) l;
     } else {
-        /* A negative count means: return the same elements multiple times
-         * (i.e. don't remove the extracted element after every extraction). */
+        /* A negative count means: return the same elements multiple times (i.e. don't remove the extracted element after every extraction). */
         count = -l;
         uniq = 0;
     }
 
-    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk))
-        == NULL || checkType(c,set,OBJ_SET)) return;
+    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL || checkType(c,set,OBJ_SET)) 
+		return;
     size = setTypeSize(set);
 
     /* If count is zero, serve it ASAP to avoid special cases later. */
@@ -728,8 +724,8 @@ void srandmemberCommand(client *c) {
         return;
     }
 
-    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
-        checkType(c,set,OBJ_SET)) return;
+    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL || checkType(c,set,OBJ_SET)) 
+		return;
 
     encoding = setTypeRandomElement(set,&ele,&llele);
     if (encoding == OBJ_ENCODING_INTSET) {
@@ -740,25 +736,27 @@ void srandmemberCommand(client *c) {
 }
 
 int qsortCompareSetsByCardinality(const void *s1, const void *s2) {
-    if (setTypeSize(*(robj**)s1) > setTypeSize(*(robj**)s2)) return 1;
-    if (setTypeSize(*(robj**)s1) < setTypeSize(*(robj**)s2)) return -1;
+    if (setTypeSize(*(robj**)s1) > setTypeSize(*(robj**)s2)) 
+		return 1;
+    if (setTypeSize(*(robj**)s1) < setTypeSize(*(robj**)s2)) 
+		return -1;
     return 0;
 }
 
-/* This is used by SDIFF and in this case we can receive NULL that should
- * be handled as empty sets. */
+/* This is used by SDIFF and in this case we can receive NULL that should be handled as empty sets. */
 int qsortCompareSetsByRevCardinality(const void *s1, const void *s2) {
     robj *o1 = *(robj**)s1, *o2 = *(robj**)s2;
     unsigned long first = o1 ? setTypeSize(o1) : 0;
     unsigned long second = o2 ? setTypeSize(o2) : 0;
 
-    if (first < second) return 1;
-    if (first > second) return -1;
+    if (first < second) 
+		return 1;
+    if (first > second) 
+		return -1;
     return 0;
 }
 
-void sinterGenericCommand(client *c, robj **setkeys,
-                          unsigned long setnum, robj *dstkey) {
+void sinterGenericCommand(client *c, robj **setkeys, unsigned long setnum, robj *dstkey) {
     robj **sets = zmalloc(sizeof(robj*)*setnum);
     setTypeIterator *si;
     robj *dstset = NULL;
@@ -817,13 +815,9 @@ void sinterGenericCommand(client *c, robj **setkeys,
             if (sets[j] == sets[0]) continue;
             if (encoding == OBJ_ENCODING_INTSET) {
                 /* intset with intset is simple... and fast */
-                if (sets[j]->encoding == OBJ_ENCODING_INTSET &&
-                    !intsetFind((intset*)sets[j]->ptr,intobj))
-                {
+                if (sets[j]->encoding == OBJ_ENCODING_INTSET && !intsetFind((intset*)sets[j]->ptr,intobj)) {
                     break;
-                /* in order to compare an integer with an object we
-                 * have to use the generic function, creating an object
-                 * for this */
+                /* in order to compare an integer with an object we have to use the generic function, creating an object for this */
                 } else if (sets[j]->encoding == OBJ_ENCODING_HT) {
                     elesds = sdsfromlonglong(intobj);
                     if (!setTypeIsMember(sets[j],elesds)) {

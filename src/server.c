@@ -1,30 +1,5 @@
 /*
- * Copyright (c) 2009-2016, Salvatore Sanfilippo <antirez at gmail dot com>
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "server.h"
@@ -333,8 +308,7 @@ struct redisCommand redisCommandTable[] = {
  * function of Redis may be called from other threads. */
 void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst);
 
-/* Low level logging. To use only for very big messages, otherwise
- * serverLog() is to prefer. */
+/* Low level logging. To use only for very big messages, otherwise serverLog() is to prefer. */
 void serverLogRaw(int level, const char *msg) {
     const int syslogLevelMap[] = { LOG_DEBUG, LOG_INFO, LOG_NOTICE, LOG_WARNING };
     const char *c = ".-*#";
@@ -369,23 +343,23 @@ void serverLogRaw(int level, const char *msg) {
         } else {
             role_char = (server.masterhost ? 'S':'M'); /* Slave or Master. */
         }
-        fprintf(fp,"%d:%c %s %c %s\n",
-            (int)getpid(),role_char, buf,c[level],msg);
+        fprintf(fp,"%d:%c %s %c %s\n", (int)getpid(),role_char, buf,c[level],msg);
     }
     fflush(fp);
 
-    if (!log_to_stdout) fclose(fp);
-    if (server.syslog_enabled) syslog(syslogLevelMap[level], "%s", msg);
+    if (!log_to_stdout) 
+		fclose(fp);
+    if (server.syslog_enabled) 
+		syslog(syslogLevelMap[level], "%s", msg);
 }
 
-/* Like serverLogRaw() but with printf-alike support. This is the function that
- * is used across the code. The raw version is only used in order to dump
- * the INFO output on crash. */
+/* Like serverLogRaw() but with printf-alike support. This is the function that is used across the code. The raw version is only used in order to dump the INFO output on crash. */
 void serverLog(int level, const char *fmt, ...) {
     va_list ap;
     char msg[LOG_MAX_LEN];
 
-    if ((level&0xff) < server.verbosity) return;
+    if ((level&0xff) < server.verbosity) 
+		return;
 
     va_start(ap, fmt);
     vsnprintf(msg, sizeof(msg), fmt, ap);
@@ -1438,10 +1412,13 @@ void afterSleep(struct aeEventLoop *eventLoop) {
 }
 
 /* =========================== Server initialization ======================== */
+/*=======================下面是redis服务的一些初始化操作处理函数==========================*/
 
+/* 创建在redis中共享类字符串对象和常用的字符串对象 */
 void createSharedObjects(void) {
     int j;
 
+	//首先初始化一些常用的字符串对象 这些对象一般在对应的响应结果中使用
     shared.crlf = createObject(OBJ_STRING,sdsnew("\r\n"));
     shared.ok = createObject(OBJ_STRING,sdsnew("+OK\r\n"));
     shared.err = createObject(OBJ_STRING,sdsnew("-ERR\r\n"));
@@ -1455,58 +1432,45 @@ void createSharedObjects(void) {
     shared.pong = createObject(OBJ_STRING,sdsnew("+PONG\r\n"));
     shared.queued = createObject(OBJ_STRING,sdsnew("+QUEUED\r\n"));
     shared.emptyscan = createObject(OBJ_STRING,sdsnew("*2\r\n$1\r\n0\r\n*0\r\n"));
-    shared.wrongtypeerr = createObject(OBJ_STRING,sdsnew(
-        "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"));
-    shared.nokeyerr = createObject(OBJ_STRING,sdsnew(
-        "-ERR no such key\r\n"));
-    shared.syntaxerr = createObject(OBJ_STRING,sdsnew(
-        "-ERR syntax error\r\n"));
-    shared.sameobjecterr = createObject(OBJ_STRING,sdsnew(
-        "-ERR source and destination objects are the same\r\n"));
-    shared.outofrangeerr = createObject(OBJ_STRING,sdsnew(
-        "-ERR index out of range\r\n"));
-    shared.noscripterr = createObject(OBJ_STRING,sdsnew(
-        "-NOSCRIPT No matching script. Please use EVAL.\r\n"));
-    shared.loadingerr = createObject(OBJ_STRING,sdsnew(
-        "-LOADING Redis is loading the dataset in memory\r\n"));
-    shared.slowscripterr = createObject(OBJ_STRING,sdsnew(
-        "-BUSY Redis is busy running a script. You can only call SCRIPT KILL or SHUTDOWN NOSAVE.\r\n"));
-    shared.masterdownerr = createObject(OBJ_STRING,sdsnew(
-        "-MASTERDOWN Link with MASTER is down and replica-serve-stale-data is set to 'no'.\r\n"));
-    shared.bgsaveerr = createObject(OBJ_STRING,sdsnew(
-        "-MISCONF Redis is configured to save RDB snapshots, but it is currently not able to persist on disk. Commands that may modify the data set are disabled, because this instance is configured to report errors during writes if RDB snapshotting fails (stop-writes-on-bgsave-error option). Please check the Redis logs for details about the RDB error.\r\n"));
-    shared.roslaveerr = createObject(OBJ_STRING,sdsnew(
-        "-READONLY You can't write against a read only replica.\r\n"));
-    shared.noautherr = createObject(OBJ_STRING,sdsnew(
-        "-NOAUTH Authentication required.\r\n"));
-    shared.oomerr = createObject(OBJ_STRING,sdsnew(
-        "-OOM command not allowed when used memory > 'maxmemory'.\r\n"));
-    shared.execaborterr = createObject(OBJ_STRING,sdsnew(
-        "-EXECABORT Transaction discarded because of previous errors.\r\n"));
-    shared.noreplicaserr = createObject(OBJ_STRING,sdsnew(
-        "-NOREPLICAS Not enough good replicas to write.\r\n"));
-    shared.busykeyerr = createObject(OBJ_STRING,sdsnew(
-        "-BUSYKEY Target key name already exists.\r\n"));
+    shared.wrongtypeerr = createObject(OBJ_STRING,sdsnew("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"));
+    shared.nokeyerr = createObject(OBJ_STRING,sdsnew("-ERR no such key\r\n"));
+    shared.syntaxerr = createObject(OBJ_STRING,sdsnew("-ERR syntax error\r\n"));
+    shared.sameobjecterr = createObject(OBJ_STRING,sdsnew("-ERR source and destination objects are the same\r\n"));
+    shared.outofrangeerr = createObject(OBJ_STRING,sdsnew("-ERR index out of range\r\n"));
+    shared.noscripterr = createObject(OBJ_STRING,sdsnew("-NOSCRIPT No matching script. Please use EVAL.\r\n"));
+    shared.loadingerr = createObject(OBJ_STRING,sdsnew("-LOADING Redis is loading the dataset in memory\r\n"));
+    shared.slowscripterr = createObject(OBJ_STRING,sdsnew("-BUSY Redis is busy running a script. You can only call SCRIPT KILL or SHUTDOWN NOSAVE.\r\n"));
+    shared.masterdownerr = createObject(OBJ_STRING,sdsnew("-MASTERDOWN Link with MASTER is down and replica-serve-stale-data is set to 'no'.\r\n"));
+    shared.bgsaveerr = createObject(OBJ_STRING,sdsnew("-MISCONF Redis is configured to save RDB snapshots, but it is currently not able to persist on disk. Commands that may modify the data set are disabled, because this instance is configured to report errors during writes if RDB snapshotting fails (stop-writes-on-bgsave-error option). Please check the Redis logs for details about the RDB error.\r\n"));
+    shared.roslaveerr = createObject(OBJ_STRING,sdsnew("-READONLY You can't write against a read only replica.\r\n"));
+    shared.noautherr = createObject(OBJ_STRING,sdsnew("-NOAUTH Authentication required.\r\n"));
+    shared.oomerr = createObject(OBJ_STRING,sdsnew("-OOM command not allowed when used memory > 'maxmemory'.\r\n"));
+    shared.execaborterr = createObject(OBJ_STRING,sdsnew("-EXECABORT Transaction discarded because of previous errors.\r\n"));
+    shared.noreplicaserr = createObject(OBJ_STRING,sdsnew("-NOREPLICAS Not enough good replicas to write.\r\n"));
+    shared.busykeyerr = createObject(OBJ_STRING,sdsnew("-BUSYKEY Target key name already exists.\r\n"));
     shared.space = createObject(OBJ_STRING,sdsnew(" "));
     shared.colon = createObject(OBJ_STRING,sdsnew(":"));
     shared.plus = createObject(OBJ_STRING,sdsnew("+"));
 
+	//创建10个常用的选择对应索引数据库的命令字符串
     for (j = 0; j < PROTO_SHARED_SELECT_CMDS; j++) {
         char dictid_str[64];
         int dictid_len;
-
+		//获取数值对应的字符串格式
         dictid_len = ll2string(dictid_str,sizeof(dictid_str),j);
-        shared.select[j] = createObject(OBJ_STRING,
-            sdscatprintf(sdsempty(),
-                "*2\r\n$6\r\nSELECT\r\n$%d\r\n%s\r\n",
-                dictid_len, dictid_str));
+		//初始化对应的选择索引库的选择的命令消息格式
+        shared.select[j] = createObject(OBJ_STRING,sdscatprintf(sdsempty(),"*2\r\n$6\r\nSELECT\r\n$%d\r\n%s\r\n",dictid_len, dictid_str));
     }
+
+	//创建于消息订阅相关的字符串对象
     shared.messagebulk = createStringObject("$7\r\nmessage\r\n",13);
     shared.pmessagebulk = createStringObject("$8\r\npmessage\r\n",14);
     shared.subscribebulk = createStringObject("$9\r\nsubscribe\r\n",15);
     shared.unsubscribebulk = createStringObject("$11\r\nunsubscribe\r\n",18);
     shared.psubscribebulk = createStringObject("$10\r\npsubscribe\r\n",17);
     shared.punsubscribebulk = createStringObject("$12\r\npunsubscribe\r\n",19);
+
+	//创建常用的命令字符串对象
     shared.del = createStringObject("DEL",3);
     shared.unlink = createStringObject("UNLINK",6);
     shared.rpop = createStringObject("RPOP",4);
@@ -1515,28 +1479,31 @@ void createSharedObjects(void) {
     shared.rpoplpush = createStringObject("RPOPLPUSH",9);
     shared.zpopmin = createStringObject("ZPOPMIN",7);
     shared.zpopmax = createStringObject("ZPOPMAX",7);
+
+	//创建常用的整数共享字符串对象0->10000范围
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
-        shared.integers[j] =
-            makeObjectShared(createObject(OBJ_STRING,(void*)(long)j));
+		//创建对应的共享类型字符串整数数据 注意一开始是OBJ_ENCODING_RAW
+        shared.integers[j] = makeObjectShared(createObject(OBJ_STRING,(void*)(long)j));
+		//设置对应的编码方式为整数类型字符串对象类型
         shared.integers[j]->encoding = OBJ_ENCODING_INT;
     }
+
+	//
     for (j = 0; j < OBJ_SHARED_BULKHDR_LEN; j++) {
-        shared.mbulkhdr[j] = createObject(OBJ_STRING,
-            sdscatprintf(sdsempty(),"*%d\r\n",j));
-        shared.bulkhdr[j] = createObject(OBJ_STRING,
-            sdscatprintf(sdsempty(),"$%d\r\n",j));
+        shared.mbulkhdr[j] = createObject(OBJ_STRING,sdscatprintf(sdsempty(),"*%d\r\n",j));
+        shared.bulkhdr[j] = createObject(OBJ_STRING,sdscatprintf(sdsempty(),"$%d\r\n",j));
     }
-    /* The following two shared objects, minstring and maxstrings, are not
-     * actually used for their value but as a special object meaning
-     * respectively the minimum possible string and the maximum possible
-     * string in string comparisons for the ZRANGEBYLEX command. */
-    shared.minstring = sdsnew("minstring");
+    /* The following two shared objects, minstring and maxstrings, are not actually used for their value but as a special object meaning
+     * respectively the minimum possible string and the maximum possible string in string comparisons for the ZRANGEBYLEX command. */
+	//
+	shared.minstring = sdsnew("minstring");
     shared.maxstring = sdsnew("maxstring");
 }
 
 void initServerConfig(void) {
     int j;
 
+	//初始化3个redis服务需要的锁对象
     pthread_mutex_init(&server.next_client_id_mutex,NULL);
     pthread_mutex_init(&server.lruclock_mutex,NULL);
     pthread_mutex_init(&server.unixtime_mutex,NULL);
@@ -1614,8 +1581,7 @@ void initServerConfig(void) {
     server.notify_keyspace_events = 0;
     server.maxclients = CONFIG_DEFAULT_MAX_CLIENTS;
     server.blocked_clients = 0;
-    memset(server.blocked_clients_by_type,0,
-           sizeof(server.blocked_clients_by_type));
+    memset(server.blocked_clients_by_type,0,sizeof(server.blocked_clients_by_type));
     server.maxmemory = CONFIG_DEFAULT_MAXMEMORY;
     server.maxmemory_policy = CONFIG_DEFAULT_MAXMEMORY_POLICY;
     server.maxmemory_samples = CONFIG_DEFAULT_MAXMEMORY_SAMPLES;
@@ -1705,12 +1671,14 @@ void initServerConfig(void) {
     R_NegInf = -1.0/R_Zero;
     R_Nan = R_Zero/R_Zero;
 
-    /* Command table -- we initiialize it here as it is part of the
-     * initial configuration, since command names may be changed via
-     * redis.conf using the rename-command directive. */
-    server.commands = dictCreate(&commandTableDictType,NULL);
+    /* Command table -- we initiialize it here as it is part of the initial configuration, since command names may be changed via redis.conf using the rename-command directive. */
+	//创建存储redis服务提供的命令字典结构占据的空间
+	server.commands = dictCreate(&commandTableDictType,NULL);
     server.orig_commands = dictCreate(&commandTableDictType,NULL);
+	//触发将命令数组中的数据导入到对应的命名字典结构中的操作
     populateCommandTable();
+
+	//初始化在redis服务中查用的命令字符串对象
     server.delCommand = lookupCommandByCString("del");
     server.multiCommand = lookupCommandByCString("multi");
     server.lpushCommand = lookupCommandByCString("lpush");
@@ -2142,15 +2110,13 @@ void initServer(void) {
     server.repl_good_slaves_count = 0;
 
     /* Create the timer callback, this is our way to process many background
-     * operations incrementally, like clients timeout, eviction of unaccessed
-     * expired keys and so forth. */
+     * operations incrementally, like clients timeout, eviction of unaccessed expired keys and so forth. */
     if (aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
         serverPanic("Can't create event loop timers.");
         exit(1);
     }
 
-    /* Create an event handler for accepting new connections in TCP and Unix
-     * domain sockets. */
+    /* Create an event handler for accepting new connections in TCP and Unix domain sockets. */
     for (j = 0; j < server.ipfd_count; j++) {
         if (aeCreateFileEvent(server.el, server.ipfd[j], AE_READABLE,
             acceptTcpHandler,NULL) == AE_ERR)
@@ -2210,42 +2176,73 @@ void InitServerLast() {
     server.initial_memory_usage = zmalloc_used_memory();
 }
 
-/* Populates the Redis Command Table starting from the hard coded list
- * we have on top of redis.c file. */
+/* Populates the Redis Command Table starting from the hard coded list we have on top of redis.c file. */
+/* 处理将对应的命令数组中配置的命令转换成对应的命令字典结构 */
 void populateCommandTable(void) {
     int j;
+	//获取redis中提供的总的命令数目
     int numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
-
+	//循环进行命令导入处理
     for (j = 0; j < numcommands; j++) {
+		//获取对应索引位置处的redis命令结构
         struct redisCommand *c = redisCommandTable+j;
+		//获取对应命令的配置属性
         char *f = c->sflags;
         int retval1, retval2;
-
+		//循环处理命令属性信息的配置
         while(*f != '\0') {
             switch(*f) {
-            case 'w': c->flags |= CMD_WRITE; break;
-            case 'r': c->flags |= CMD_READONLY; break;
-            case 'm': c->flags |= CMD_DENYOOM; break;
-            case 'a': c->flags |= CMD_ADMIN; break;
-            case 'p': c->flags |= CMD_PUBSUB; break;
-            case 's': c->flags |= CMD_NOSCRIPT; break;
-            case 'R': c->flags |= CMD_RANDOM; break;
-            case 'S': c->flags |= CMD_SORT_FOR_SCRIPT; break;
-            case 'l': c->flags |= CMD_LOADING; break;
-            case 't': c->flags |= CMD_STALE; break;
-            case 'M': c->flags |= CMD_SKIP_MONITOR; break;
-            case 'k': c->flags |= CMD_ASKING; break;
-            case 'F': c->flags |= CMD_FAST; break;
-            default: serverPanic("Unsupported command flag"); break;
+            case 'w': 
+				c->flags |= CMD_WRITE; 
+				break;
+            case 'r': 
+				c->flags |= CMD_READONLY; 
+				break;
+            case 'm': 
+				c->flags |= CMD_DENYOOM; 
+				break;
+            case 'a': 
+				c->flags |= CMD_ADMIN; 
+				break;
+            case 'p': 
+				c->flags |= CMD_PUBSUB; 
+				break;
+            case 's': 
+				c->flags |= CMD_NOSCRIPT; 
+				break;
+            case 'R': 
+				c->flags |= CMD_RANDOM; 
+				break;
+            case 'S': 
+				c->flags |= CMD_SORT_FOR_SCRIPT; 
+				break;
+            case 'l': 
+				c->flags |= CMD_LOADING; 
+				break;
+            case 't': 
+				c->flags |= CMD_STALE; 
+				break;
+            case 'M': 
+				c->flags |= CMD_SKIP_MONITOR;
+				break;
+            case 'k': 
+				c->flags |= CMD_ASKING;
+				break;
+            case 'F': 
+				c->flags |= CMD_FAST; 
+				break;
+            default: 
+            	serverPanic("Unsupported command flag"); 
+				break;
             }
             f++;
         }
-
+		//将对应的命令添加到命令字典集合中
         retval1 = dictAdd(server.commands, sdsnew(c->name), c);
-        /* Populate an additional dictionary that will be unaffected
-         * by rename-command statements in redis.conf. */
+        /* Populate an additional dictionary that will be unaffected by rename-command statements in redis.conf. */
         retval2 = dictAdd(server.orig_commands, sdsnew(c->name), c);
-        serverAssert(retval1 == DICT_OK && retval2 == DICT_OK);
+		//检测插入命令对象是否成功
+		serverAssert(retval1 == DICT_OK && retval2 == DICT_OK);
     }
 }
 
@@ -2271,9 +2268,7 @@ void redisOpArrayInit(redisOpArray *oa) {
     oa->numops = 0;
 }
 
-int redisOpArrayAppend(redisOpArray *oa, struct redisCommand *cmd, int dbid,
-                       robj **argv, int argc, int target)
-{
+int redisOpArrayAppend(redisOpArray *oa, struct redisCommand *cmd, int dbid, robj **argv, int argc, int target) {
     redisOp *op;
 
     oa->ops = zrealloc(oa->ops,sizeof(redisOp)*(oa->numops+1));
@@ -2303,47 +2298,49 @@ void redisOpArrayFree(redisOpArray *oa) {
 
 /* ====================== Commands lookup and execution ===================== */
 
+/* 根据提供的sds结构来查询对应的命令结构 */
 struct redisCommand *lookupCommand(sds name) {
+	//触发在命令字典中查询对应的命令结构
     return dictFetchValue(server.commands, name);
 }
 
+/* 根据提供的字符串来查询对应的命令结构 */
 struct redisCommand *lookupCommandByCString(char *s) {
     struct redisCommand *cmd;
+	//将对应的字符串转换成对应的sds结构
     sds name = sdsnew(s);
-
+	//在命令表中获取对应的命令指向
     cmd = dictFetchValue(server.commands, name);
+	//释放对应sds结构空间
     sdsfree(name);
+	//返回找到的命令结构
     return cmd;
 }
 
-/* Lookup the command in the current table, if not found also check in
- * the original table containing the original command names unaffected by
- * redis.conf rename-command statement.
- *
- * This is used by functions rewriting the argument vector such as
- * rewriteClientCommandVector() in order to set client->cmd pointer
- * correctly even if the command was renamed. */
+/* Lookup the command in the current table, if not found also check in the original table containing the original command names unaffected by redis.conf rename-command statement.
+ * This is used by functions rewriting the argument vector such as rewriteClientCommandVector() in order to set client->cmd pointer correctly even if the command was renamed. */
+/* 在redis服务中提供的两个命令字典结构中查询对应的命令结构 */
 struct redisCommand *lookupCommandOrOriginal(sds name) {
+	//首先在改名的命令字典中查询对应的命令结构
     struct redisCommand *cmd = dictFetchValue(server.commands, name);
-
-    if (!cmd) cmd = dictFetchValue(server.orig_commands,name);
+	//检测在改名命令字典中是否找到对应的命令结构
+    if (!cmd) 
+		//然后在原始的命令字典中查询对应的命令结构
+		cmd = dictFetchValue(server.orig_commands,name);
+	//返回找到的命令结构
     return cmd;
 }
 
-/* Propagate the specified command (in the context of the specified database id)
- * to AOF and Slaves.
+/* Propagate the specified command (in the context of the specified database id) to AOF and Slaves.
  *
  * flags are an xor between:
  * + PROPAGATE_NONE (no propagation of command at all)
  * + PROPAGATE_AOF (propagate into the AOF file if is enabled)
  * + PROPAGATE_REPL (propagate into the replication link)
  *
- * This should not be used inside commands implementation. Use instead
- * alsoPropagate(), preventCommandPropagation(), forceCommandPropagation().
+ * This should not be used inside commands implementation. Use instead alsoPropagate(), preventCommandPropagation(), forceCommandPropagation().
  */
-void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
-               int flags)
-{
+void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int flags) {
     if (server.aof_state != AOF_OFF && flags & PROPAGATE_AOF)
         feedAppendOnlyFile(cmd,dbid,argv,argc);
     if (flags & PROPAGATE_REPL)
@@ -2362,9 +2359,7 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
  * so it is up to the caller to release the passed argv (but it is usually
  * stack allocated).  The function autoamtically increments ref count of
  * passed objects, so the caller does not need to. */
-void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
-                   int target)
-{
+void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int target) {
     robj **argvcopy;
     int j;
 
@@ -2382,8 +2377,10 @@ void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
  * Redis command implementation in order to to force the propagation of a
  * specific command execution into AOF / Replication. */
 void forceCommandPropagation(client *c, int flags) {
-    if (flags & PROPAGATE_REPL) c->flags |= CLIENT_FORCE_REPL;
-    if (flags & PROPAGATE_AOF) c->flags |= CLIENT_FORCE_AOF;
+    if (flags & PROPAGATE_REPL) 
+		c->flags |= CLIENT_FORCE_REPL;
+    if (flags & PROPAGATE_AOF) 
+		c->flags |= CLIENT_FORCE_AOF;
 }
 
 /* Avoid that the executed command is propagated at all. This way we
@@ -2815,8 +2812,7 @@ int prepareForShutdown(int flags) {
                 serverLog(LL_WARNING, "Writing initial AOF, can't exit.");
                 return C_ERR;
             }
-            serverLog(LL_WARNING,
-                "There is a child rewriting the AOF. Killing it!");
+            serverLog(LL_WARNING, "There is a child rewriting the AOF. Killing it!");
             kill(server.aof_child_pid,SIGUSR1);
         }
         /* Append only file: flush buffers and fsync() the AOF at exit */
@@ -2848,14 +2844,12 @@ int prepareForShutdown(int flags) {
         unlink(server.pidfile);
     }
 
-    /* Best effort flush of slave output buffers, so that we hopefully
-     * send them pending writes. */
+    /* Best effort flush of slave output buffers, so that we hopefully send them pending writes. */
     flushSlavesOutputBuffers();
 
     /* Close the listening sockets. Apparently this allows faster restarts. */
     closeListeningSockets(1);
-    serverLog(LL_WARNING,"%s is now ready to exit, bye bye...",
-        server.sentinel_mode ? "Sentinel" : "Redis");
+    serverLog(LL_WARNING,"%s is now ready to exit, bye bye...", server.sentinel_mode ? "Sentinel" : "Redis");
     return C_OK;
 }
 
@@ -3872,28 +3866,39 @@ void setupSignalHandlers(void) {
 
 void memtest(size_t megabytes, int passes);
 
-/* Returns 1 if there is --sentinel among the arguments or if
- * argv[0] contains "redis-sentinel". */
+/* Returns 1 if there is --sentinel among the arguments or if  argv[0] contains "redis-sentinel". */
+/* 检测是否启动的是Sentinel哨兵模式 */
+/* 启动的方式有两种 1 使用命令 ./redis-sentinel ../sentinel.conf  2 通过参数 redis-server sentinel.conf --sentinel */
 int checkForSentinelMode(int argc, char **argv) {
     int j;
-
-    if (strstr(argv[0],"redis-sentinel") != NULL) return 1;
+	//首先检测是否是通过命令方式启动哨兵模式
+    if (strstr(argv[0],"redis-sentinel") != NULL)
+		return 1;
+	//循环处理配置参数 检测是否以参数方式来启动哨兵模式
     for (j = 1; j < argc; j++)
-        if (!strcmp(argv[j],"--sentinel")) return 1;
+		//匹配是否是参数模式启动哨兵
+        if (!strcmp(argv[j],"--sentinel")) 
+			return 1;
+	//返回不是哨兵模式
     return 0;
 }
 
 /* Function called at startup to load RDB or AOF file in memory. */
+/* 服务启动时根据服务配置参数来加载对应的RDB或者AOF数据到内存中 */
 void loadDataFromDisk(void) {
+	//记录开始装载数据的起始时间
     long long start = ustime();
+	//检测当前redis服务配置的加载数据的模式
     if (server.aof_state == AOF_ON) {
+		//进行aof方式加载数据
         if (loadAppendOnlyFile(server.aof_filename) == C_OK)
-            serverLog(LL_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
+			//加载数据成功向服务器写入对应的日志
+            serverLog(LL_NOTICE,"DB loaded from append only file: %.3f seconds", (float)(ustime()-start)/1000000);
     } else {
+    	//进行rdb方式进行数据载入处理
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
         if (rdbLoad(server.rdb_filename,&rsi) == C_OK) {
-            serverLog(LL_NOTICE,"DB loaded from disk: %.3f seconds",
-                (float)(ustime()-start)/1000000);
+            serverLog(LL_NOTICE,"DB loaded from disk: %.3f seconds", (float)(ustime()-start)/1000000);
 
             /* Restore the replication ID / offset from the RDB file. */
             if ((server.masterhost ||
@@ -3904,13 +3909,10 @@ void loadDataFromDisk(void) {
                 /* Note that older implementations may save a repl_stream_db
                  * of -1 inside the RDB file in a wrong way, see more
                  * information in function rdbPopulateSaveInfo. */
-                rsi.repl_stream_db != -1)
-            {
+                rsi.repl_stream_db != -1) {
                 memcpy(server.replid,rsi.repl_id,sizeof(server.replid));
                 server.master_repl_offset = rsi.repl_offset;
-                /* If we are a slave, create a cached master from this
-                 * information, in order to allow partial resynchronizations
-                 * with masters. */
+                /* If we are a slave, create a cached master from this information, in order to allow partial resynchronizations with masters. */
                 replicationCacheMasterUsingMyself();
                 selectDb(server.cached_master,rsi.repl_stream_db);
             }
@@ -3921,17 +3923,21 @@ void loadDataFromDisk(void) {
     }
 }
 
+/* redis内存不足的处理函数 */
 void redisOutOfMemoryHandler(size_t allocation_size) {
-    serverLog(LL_WARNING,"Out Of Memory allocating %zu bytes!",
-        allocation_size);
+	//日志输出申请多少空间不足
+    serverLog(LL_WARNING,"Out Of Memory allocating %zu bytes!", allocation_size);
+	//启动退出redis服务的处理
     serverPanic("Redis aborting for OUT OF MEMORY");
 }
 
 void redisSetProcTitle(char *title) {
 #ifdef USE_SETPROCTITLE
     char *server_mode = "";
-    if (server.cluster_enabled) server_mode = " [cluster]";
-    else if (server.sentinel_mode) server_mode = " [sentinel]";
+    if (server.cluster_enabled) 
+		server_mode = " [cluster]";
+    else if (server.sentinel_mode) 
+		server_mode = " [sentinel]";
 
     setproctitle("%s %s:%d%s",
         title,
@@ -3951,8 +3957,7 @@ int redisSupervisedUpstart(void) {
     const char *upstart_job = getenv("UPSTART_JOB");
 
     if (!upstart_job) {
-        serverLog(LL_WARNING,
-                "upstart supervision requested, but UPSTART_JOB not found");
+        serverLog(LL_WARNING, "upstart supervision requested, but UPSTART_JOB not found");
         return 0;
     }
 
@@ -3971,8 +3976,7 @@ int redisSupervisedSystemd(void) {
     int sendto_flags = 0;
 
     if (!notify_socket) {
-        serverLog(LL_WARNING,
-                "systemd supervision requested, but NOTIFY_SOCKET not found");
+        serverLog(LL_WARNING, "systemd supervision requested, but NOTIFY_SOCKET not found");
         return 0;
     }
 
@@ -3982,8 +3986,7 @@ int redisSupervisedSystemd(void) {
 
     serverLog(LL_NOTICE, "supervised by systemd, will signal readiness");
     if ((fd = socket(AF_UNIX, SOCK_DGRAM, 0)) == -1) {
-        serverLog(LL_WARNING,
-                "Can't connect to systemd socket %s", notify_socket);
+        serverLog(LL_WARNING, "Can't connect to systemd socket %s", notify_socket);
         return 0;
     }
 
@@ -4001,8 +4004,7 @@ int redisSupervisedSystemd(void) {
 
     memset(&hdr, 0, sizeof(hdr));
     hdr.msg_name = &su;
-    hdr.msg_namelen = offsetof(struct sockaddr_un, sun_path) +
-        strlen(notify_socket);
+    hdr.msg_namelen = offsetof(struct sockaddr_un, sun_path) + strlen(notify_socket);
     hdr.msg_iov = &iov;
     hdr.msg_iovlen = 1;
 
@@ -4038,7 +4040,8 @@ int redisIsSupervised(int mode) {
     return 0;
 }
 
-
+/* redis服务启动的主函数 */
+/* redis提供的服务脚本有 redis-server redis-check-aof redis-check-rdb redis-sentinel redis-benchmark redis-cli */
 int main(int argc, char **argv) {
     struct timeval tv;
     int j;
@@ -4064,7 +4067,6 @@ int main(int argc, char **argv) {
         } else if (!strcasecmp(argv[2], "zmalloc")) {
             return zmalloc_test(argc, argv);
         }
-
         return -1; /* test not found */
     }
 #endif
@@ -4075,6 +4077,7 @@ int main(int argc, char **argv) {
 #endif
     setlocale(LC_COLLATE,"");
     tzset(); /* Populates 'timezone' global. */
+	//设置内存不够的处理函数
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     srand(time(NULL)^getpid());
     gettimeofday(&tv,NULL);
@@ -4082,31 +4085,33 @@ int main(int argc, char **argv) {
     char hashseed[16];
     getRandomHexChars(hashseed,sizeof(hashseed));
     dictSetHashFunctionSeed((uint8_t*)hashseed);
+	//检测启动的服务是否是哨兵模式
     server.sentinel_mode = checkForSentinelMode(argc,argv);
+	//
     initServerConfig();
+	//
     moduleInitModulesSystem();
 
-    /* Store the executable path and arguments in a safe place in order
-     * to be able to restart the server later. */
+    /* Store the executable path and arguments in a safe place in order to be able to restart the server later. */
     server.executable = getAbsolutePath(argv[0]);
     server.exec_argv = zmalloc(sizeof(char*)*(argc+1));
     server.exec_argv[argc] = NULL;
-    for (j = 0; j < argc; j++) server.exec_argv[j] = zstrdup(argv[j]);
+    for (j = 0; j < argc; j++) 
+		server.exec_argv[j] = zstrdup(argv[j]);
 
-    /* We need to init sentinel right now as parsing the configuration file
-     * in sentinel mode will have the effect of populating the sentinel
-     * data structures with master nodes to monitor. */
+    /* We need to init sentinel right now as parsing the configuration file in sentinel mode will have the effect of populating the sentinel data structures with master nodes to monitor. */
     if (server.sentinel_mode) {
         initSentinelConfig();
         initSentinel();
     }
 
-    /* Check if we need to start in redis-check-rdb/aof mode. We just execute
-     * the program main. However the program is part of the Redis executable
-     * so that we can easily execute an RDB check on loading errors. */
-    if (strstr(argv[0],"redis-check-rdb") != NULL)
+    /* Check if we need to start in redis-check-rdb/aof mode. We just execute the program main. However the program is part of the Redis executable so that we can easily execute an RDB check on loading errors. */
+	//特殊检查启动的服务是否是检测对应的rdb或者aof文件完整性的检测程序
+	if (strstr(argv[0],"redis-check-rdb") != NULL)
+		//检测rdb文件完整性
         redis_check_rdb_main(argc,argv,NULL);
     else if (strstr(argv[0],"redis-check-aof") != NULL)
+		//检测aof文件完整性
         redis_check_aof_main(argc,argv);
 
     if (argc >= 2) {
@@ -4115,10 +4120,10 @@ int main(int argc, char **argv) {
         char *configfile = NULL;
 
         /* Handle special options --help and --version */
-        if (strcmp(argv[1], "-v") == 0 ||
-            strcmp(argv[1], "--version") == 0) version();
-        if (strcmp(argv[1], "--help") == 0 ||
-            strcmp(argv[1], "-h") == 0) usage();
+        if (strcmp(argv[1], "-v") == 0 || strcmp(argv[1], "--version") == 0) 
+            version();
+        if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) 
+            usage();
         if (strcmp(argv[1], "--test-memory") == 0) {
             if (argc == 3) {
                 memtest(atoi(argv[2]),50);
@@ -4153,7 +4158,8 @@ int main(int argc, char **argv) {
                     j++;
                     continue;
                 }
-                if (sdslen(options)) options = sdscat(options,"\n");
+                if (sdslen(options)) 
+					options = sdscat(options,"\n");
                 options = sdscat(options,argv[j]+2);
                 options = sdscat(options," ");
             } else {
@@ -4164,10 +4170,8 @@ int main(int argc, char **argv) {
             j++;
         }
         if (server.sentinel_mode && configfile && *configfile == '-') {
-            serverLog(LL_WARNING,
-                "Sentinel config from STDIN not allowed.");
-            serverLog(LL_WARNING,
-                "Sentinel needs config file on disk to save state.  Exiting...");
+            serverLog(LL_WARNING, "Sentinel config from STDIN not allowed.");
+            serverLog(LL_WARNING, "Sentinel needs config file on disk to save state.  Exiting...");
             exit(1);
         }
         resetServerSaveParams();
@@ -4192,14 +4196,18 @@ int main(int argc, char **argv) {
 
     server.supervised = redisIsSupervised(server.supervised_mode);
     int background = server.daemonize && !server.supervised;
-    if (background) daemonize();
+    if (background) 
+		daemonize();
 
     initServer();
-    if (background || server.pidfile) createPidFile();
+    if (background || server.pidfile) 
+		createPidFile();
+	
     redisSetProcTitle(argv[0]);
     redisAsciiArt();
     checkTcpBacklogSettings();
 
+	//检测当前是否启动的是哨兵模式
     if (!server.sentinel_mode) {
         /* Things not needed when running in Sentinel mode. */
         serverLog(LL_WARNING,"Server initialized");
@@ -4239,3 +4247,10 @@ int main(int argc, char **argv) {
 }
 
 /* The End */
+
+
+
+
+
+
+

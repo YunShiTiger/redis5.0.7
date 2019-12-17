@@ -1,30 +1,6 @@
 /*
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * aof 文件格式 https://www.cnblogs.com/aquester/p/10529549.html
+ * aof 操作原理 https://www.jianshu.com/p/d2667780a0f1
  */
 
 #include "server.h"
@@ -647,8 +623,7 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
  * AOF loading
  * ------------------------------------------------------------------------- */
 
-/* In Redis commands are always executed in the context of a client, so in
- * order to load the append only file we need to create a fake client. */
+/* In Redis commands are always executed in the context of a client, so in order to load the append only file we need to create a fake client. */
 struct client *createFakeClient(void) {
     struct client *c = zmalloc(sizeof(*c));
 
@@ -662,8 +637,7 @@ struct client *createFakeClient(void) {
     c->bufpos = 0;
     c->flags = 0;
     c->btype = BLOCKED_NONE;
-    /* We set the fake client as a slave waiting for the synchronization
-     * so that Redis will not try to send replies to this client. */
+    /* We set the fake client as a slave waiting for the synchronization so that Redis will not try to send replies to this client. */
     c->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
     c->reply = listCreate();
     c->reply_bytes = 0;
@@ -692,11 +666,11 @@ void freeFakeClient(struct client *c) {
     zfree(c);
 }
 
-/* Replay the append log file. On success C_OK is returned. On non fatal
- * error (the append only file is zero-length) C_ERR is returned. On
- * fatal error an error message is logged and the program exists. */
+/* Replay the append log file. On success C_OK is returned. On non fatal error (the append only file is zero-length) C_ERR is returned. On fatal error an error message is logged and the program exists. */
+/* 在redis服务启动时 以aof方式来载入数据 */
 int loadAppendOnlyFile(char *filename) {
     struct client *fakeClient;
+	//以读取方式来获取对应目录的文件
     FILE *fp = fopen(filename,"r");
     struct redis_stat sb;
     int old_aof_state = server.aof_state;
@@ -704,15 +678,16 @@ int loadAppendOnlyFile(char *filename) {
     off_t valid_up_to = 0; /* Offset of latest well-formed command loaded. */
     off_t valid_before_multi = 0; /* Offset before MULTI command loaded. */
 
+	//检测获取对应的aof文件是否成功
     if (fp == NULL) {
+		//记录服务日志
         serverLog(LL_WARNING,"Fatal error: can't open the append log file for reading: %s",strerror(errno));
+		//退出成功
         exit(1);
     }
 
-    /* Handle a zero-length AOF file as a special case. An empty AOF file
-     * is a valid AOF because an empty server with AOF enabled will create
-     * a zero length file at startup, that will remain like that if no write
-     * operation is received. */
+    /* Handle a zero-length AOF file as a special case. An empty AOF file is a valid AOF because an empty server with AOF enabled will create
+     * a zero length file at startup, that will remain like that if no write operation is received. */
     if (fp && redis_fstat(fileno(fp),&sb) != -1 && sb.st_size == 0) {
         server.aof_current_size = 0;
         server.aof_fsync_offset = server.aof_current_size;
@@ -720,25 +695,25 @@ int loadAppendOnlyFile(char *filename) {
         return C_ERR;
     }
 
-    /* Temporarily disable AOF, to prevent EXEC from feeding a MULTI
-     * to the same file we're about to read. */
+    /* Temporarily disable AOF, to prevent EXEC from feeding a MULTI to the same file we're about to read. */
     server.aof_state = AOF_OFF;
 
     fakeClient = createFakeClient();
     startLoading(fp);
 
-    /* Check if this AOF file has an RDB preamble. In that case we need to
-     * load the RDB file and later continue loading the AOF tail. */
+    /* Check if this AOF file has an RDB preamble. In that case we need to load the RDB file and later continue loading the AOF tail. */
     char sig[5]; /* "REDIS" */
     if (fread(sig,1,5,fp) != 5 || memcmp(sig,"REDIS",5) != 0) {
         /* No RDB preamble, seek back at 0 offset. */
-        if (fseek(fp,0,SEEK_SET) == -1) goto readerr;
+        if (fseek(fp,0,SEEK_SET) == -1) 
+			goto readerr;
     } else {
         /* RDB preamble. Pass loading the RDB functions. */
         rio rdb;
 
         serverLog(LL_NOTICE,"Reading RDB preamble from AOF file...");
-        if (fseek(fp,0,SEEK_SET) == -1) goto readerr;
+        if (fseek(fp,0,SEEK_SET) == -1) 
+			goto readerr;
         rioInitWithFile(&rdb,fp);
         if (rdbLoadRio(&rdb,NULL,1) != C_OK) {
             serverLog(LL_WARNING,"Error reading the RDB preamble of the AOF file, AOF loading aborted");
@@ -749,6 +724,7 @@ int loadAppendOnlyFile(char *filename) {
     }
 
     /* Read the actual AOF file, in REPL format, command by command. */
+	//循环解析aof文件中的命令数据 并一条一条命令的执行
     while(1) {
         int argc, j;
         unsigned long len;
@@ -763,37 +739,60 @@ int loadAppendOnlyFile(char *filename) {
             processEventsWhileBlocked();
         }
 
+		//获取一行数据 注意aof文件中一条命令 分为多行 
+		//其中第一行为 *n 表示本命令有几个参数 其中命令本身也是一个参数 而且总是第一个参数
         if (fgets(buf,sizeof(buf),fp) == NULL) {
             if (feof(fp))
                 break;
             else
                 goto readerr;
         }
-        if (buf[0] != '*') goto fmterr;
-        if (buf[1] == '\0') goto readerr;
-        argc = atoi(buf+1);
-        if (argc < 1) goto fmterr;
 
+		//检测是否是表示数量的标识符 *
+        if (buf[0] != '*') 
+			goto fmterr;
+		//检测存储对应参数数量的空间是否正常
+        if (buf[1] == '\0') 
+			goto readerr;
+		//获取对应的参数值数量
+        argc = atoi(buf+1);
+		//检测对应的参数值个数是否合法 至少要大于等于1 即至少要包含一个命令名称
+        if (argc < 1) 
+			goto fmterr;
+
+		//开辟对应大小的存放参数的空间 即参数数组
         argv = zmalloc(sizeof(robj*)*argc);
+		/* 下面配置对应的fake客户端 后期就是使用fake客户端向redis服务发送命令进行执行对应的命令 */
+		//将参数数量设置到fake客户端上
         fakeClient->argc = argc;
+		//将对应的参数设置到fake客户端上
         fakeClient->argv = argv;
 
+		//循环解析对应的命令参数
         for (j = 0; j < argc; j++) {
+			
             if (fgets(buf,sizeof(buf),fp) == NULL) {
                 fakeClient->argc = j; /* Free up to j-1. */
                 freeFakeClientArgv(fakeClient);
                 goto readerr;
             }
-            if (buf[0] != '$') goto fmterr;
+			//
+            if (buf[0] != '$') 
+				goto fmterr;
+			//
             len = strtol(buf+1,NULL,10);
+			//
             argsds = sdsnewlen(SDS_NOINIT,len);
+			//
             if (len && fread(argsds,len,1,fp) == 0) {
                 sdsfree(argsds);
                 fakeClient->argc = j; /* Free up to j-1. */
                 freeFakeClientArgv(fakeClient);
                 goto readerr;
             }
+			//
             argv[j] = createObject(OBJ_STRING,argsds);
+			//
             if (fread(buf,2,1,fp) == 0) {
                 fakeClient->argc = j+1; /* Free up to j. */
                 freeFakeClientArgv(fakeClient);
@@ -802,47 +801,44 @@ int loadAppendOnlyFile(char *filename) {
         }
 
         /* Command lookup */
+		//根据对应的命令名称获取对应的命令
         cmd = lookupCommand(argv[0]->ptr);
+		//检测获取对应的命令是否成功
         if (!cmd) {
-            serverLog(LL_WARNING,
-                "Unknown command '%s' reading the append only file",
-                (char*)argv[0]->ptr);
-            exit(1);
+			//写入不能识别的命令日志
+            serverLog(LL_WARNING, "Unknown command '%s' reading the append only file", (char*)argv[0]->ptr);
+			//进行退出应用处理
+			exit(1);
         }
 
-        if (cmd == server.multiCommand) valid_before_multi = valid_up_to;
+        if (cmd == server.multiCommand) 
+			valid_before_multi = valid_up_to;
 
         /* Run the command in the context of a fake client */
         fakeClient->cmd = cmd;
-        if (fakeClient->flags & CLIENT_MULTI &&
-            fakeClient->cmd->proc != execCommand)
-        {
+        if (fakeClient->flags & CLIENT_MULTI && fakeClient->cmd->proc != execCommand) {
             queueMultiCommand(fakeClient);
         } else {
             cmd->proc(fakeClient);
         }
 
         /* The fake client should not have a reply */
-        serverAssert(fakeClient->bufpos == 0 &&
-                     listLength(fakeClient->reply) == 0);
+        serverAssert(fakeClient->bufpos == 0 && listLength(fakeClient->reply) == 0);
 
         /* The fake client should never get blocked */
         serverAssert((fakeClient->flags & CLIENT_BLOCKED) == 0);
 
-        /* Clean up. Command code may have changed argv/argc so we use the
-         * argv/argc of the client instead of the local variables. */
+        /* Clean up. Command code may have changed argv/argc so we use the argv/argc of the client instead of the local variables. */
         freeFakeClientArgv(fakeClient);
         fakeClient->cmd = NULL;
-        if (server.aof_load_truncated) valid_up_to = ftello(fp);
+        if (server.aof_load_truncated) 
+			valid_up_to = ftello(fp);
     }
 
     /* This point can only be reached when EOF is reached without errors.
-     * If the client is in the middle of a MULTI/EXEC, handle it as it was
-     * a short read, even if technically the protocol is correct: we want
-     * to remove the unprocessed tail and continue. */
+     * If the client is in the middle of a MULTI/EXEC, handle it as it was a short read, even if technically the protocol is correct: we want to remove the unprocessed tail and continue. */
     if (fakeClient->flags & CLIENT_MULTI) {
-        serverLog(LL_WARNING,
-            "Revert incomplete MULTI/EXEC transaction in AOF file");
+        serverLog(LL_WARNING, "Revert incomplete MULTI/EXEC transaction in AOF file");
         valid_up_to = valid_before_multi;
         goto uxeof;
     }
@@ -859,7 +855,8 @@ loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
 
 readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
     if (!feof(fp)) {
-        if (fakeClient) freeFakeClient(fakeClient); /* avoid valgrind warning */
+        if (fakeClient) 
+			freeFakeClient(fakeClient); /* avoid valgrind warning */
         serverLog(LL_WARNING,"Unrecoverable error reading the append only file: %s", strerror(errno));
         exit(1);
     }
@@ -867,34 +864,31 @@ readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
 uxeof: /* Unexpected AOF end of file. */
     if (server.aof_load_truncated) {
         serverLog(LL_WARNING,"!!! Warning: short read while loading the AOF file !!!");
-        serverLog(LL_WARNING,"!!! Truncating the AOF at offset %llu !!!",
-            (unsigned long long) valid_up_to);
+        serverLog(LL_WARNING,"!!! Truncating the AOF at offset %llu !!!", (unsigned long long) valid_up_to);
         if (valid_up_to == -1 || truncate(filename,valid_up_to) == -1) {
             if (valid_up_to == -1) {
                 serverLog(LL_WARNING,"Last valid command offset is invalid");
             } else {
-                serverLog(LL_WARNING,"Error truncating the AOF file: %s",
-                    strerror(errno));
+                serverLog(LL_WARNING,"Error truncating the AOF file: %s", strerror(errno));
             }
         } else {
-            /* Make sure the AOF file descriptor points to the end of the
-             * file after the truncate call. */
+            /* Make sure the AOF file descriptor points to the end of the file after the truncate call. */
             if (server.aof_fd != -1 && lseek(server.aof_fd,0,SEEK_END) == -1) {
-                serverLog(LL_WARNING,"Can't seek the end of the AOF file: %s",
-                    strerror(errno));
+                serverLog(LL_WARNING,"Can't seek the end of the AOF file: %s", strerror(errno));
             } else {
-                serverLog(LL_WARNING,
-                    "AOF loaded anyway because aof-load-truncated is enabled");
+                serverLog(LL_WARNING, "AOF loaded anyway because aof-load-truncated is enabled");
                 goto loaded_ok;
             }
         }
     }
-    if (fakeClient) freeFakeClient(fakeClient); /* avoid valgrind warning */
+    if (fakeClient) 
+		freeFakeClient(fakeClient); /* avoid valgrind warning */
     serverLog(LL_WARNING,"Unexpected end of file reading the append only file. You can: 1) Make a backup of your AOF file, then use ./redis-check-aof --fix <filename>. 2) Alternatively you can set the 'aof-load-truncated' configuration option to yes and restart the server.");
     exit(1);
 
 fmterr: /* Format error. */
-    if (fakeClient) freeFakeClient(fakeClient); /* avoid valgrind warning */
+    if (fakeClient) 
+		freeFakeClient(fakeClient); /* avoid valgrind warning */
     serverLog(LL_WARNING,"Bad file format reading the append only file: make a backup of your AOF file, then use ./redis-check-aof --fix <filename>");
     exit(1);
 }
@@ -903,11 +897,9 @@ fmterr: /* Format error. */
  * AOF rewrite
  * ------------------------------------------------------------------------- */
 
-/* Delegate writing an object to writing a bulk string or bulk long long.
- * This is not placed in rio.c since that adds the server.h dependency. */
+/* Delegate writing an object to writing a bulk string or bulk long long. This is not placed in rio.c since that adds the server.h dependency. */
 int rioWriteBulkObject(rio *r, robj *obj) {
-    /* Avoid using getDecodedObject to help copy-on-write (we are often
-     * in a child process when this function is called). */
+    /* Avoid using getDecodedObject to help copy-on-write (we are often in a child process when this function is called). */
     if (obj->encoding == OBJ_ENCODING_INT) {
         return rioWriteBulkLongLong(r,(long)obj->ptr);
     } else if (sdsEncodedObject(obj)) {
@@ -917,8 +909,7 @@ int rioWriteBulkObject(rio *r, robj *obj) {
     }
 }
 
-/* Emit the commands needed to rebuild a list object.
- * The function returns 0 on error, 1 on success. */
+/* Emit the commands needed to rebuild a list object. The function returns 0 on error, 1 on success. */
 int rewriteListObject(rio *r, robj *key, robj *o) {
     long long count = 0, items = listTypeLength(o);
 
@@ -929,19 +920,24 @@ int rewriteListObject(rio *r, robj *key, robj *o) {
 
         while (quicklistNext(li,&entry)) {
             if (count == 0) {
-                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
-                    AOF_REWRITE_ITEMS_PER_CMD : items;
-                if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
-                if (rioWriteBulkString(r,"RPUSH",5) == 0) return 0;
-                if (rioWriteBulkObject(r,key) == 0) return 0;
+                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ? AOF_REWRITE_ITEMS_PER_CMD : items;
+                if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) 
+					return 0;
+                if (rioWriteBulkString(r,"RPUSH",5) == 0) 
+					return 0;
+                if (rioWriteBulkObject(r,key) == 0) 
+					return 0;
             }
 
             if (entry.value) {
-                if (rioWriteBulkString(r,(char*)entry.value,entry.sz) == 0) return 0;
+                if (rioWriteBulkString(r,(char*)entry.value,entry.sz) == 0) 
+					return 0;
             } else {
-                if (rioWriteBulkLongLong(r,entry.longval) == 0) return 0;
+                if (rioWriteBulkLongLong(r,entry.longval) == 0) 
+					return 0;
             }
-            if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
+            if (++count == AOF_REWRITE_ITEMS_PER_CMD) 
+				count = 0;
             items--;
         }
         quicklistReleaseIterator(li);
@@ -951,8 +947,7 @@ int rewriteListObject(rio *r, robj *key, robj *o) {
     return 1;
 }
 
-/* Emit the commands needed to rebuild a set object.
- * The function returns 0 on error, 1 on success. */
+/* Emit the commands needed to rebuild a set object. The function returns 0 on error, 1 on success. */
 int rewriteSetObject(rio *r, robj *key, robj *o) {
     long long count = 0, items = setTypeSize(o);
 
@@ -962,15 +957,19 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
 
         while(intsetGet(o->ptr,ii++,&llval)) {
             if (count == 0) {
-                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
-                    AOF_REWRITE_ITEMS_PER_CMD : items;
+                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ? AOF_REWRITE_ITEMS_PER_CMD : items;
 
-                if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
-                if (rioWriteBulkString(r,"SADD",4) == 0) return 0;
-                if (rioWriteBulkObject(r,key) == 0) return 0;
+                if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) 
+					return 0;
+                if (rioWriteBulkString(r,"SADD",4) == 0) 
+					return 0;
+                if (rioWriteBulkObject(r,key) == 0) 
+					return 0;
             }
-            if (rioWriteBulkLongLong(r,llval) == 0) return 0;
-            if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
+            if (rioWriteBulkLongLong(r,llval) == 0) 
+				return 0;
+            if (++count == AOF_REWRITE_ITEMS_PER_CMD) 
+				count = 0;
             items--;
         }
     } else if (o->encoding == OBJ_ENCODING_HT) {
@@ -980,15 +979,19 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
         while((de = dictNext(di)) != NULL) {
             sds ele = dictGetKey(de);
             if (count == 0) {
-                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
-                    AOF_REWRITE_ITEMS_PER_CMD : items;
+                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ? AOF_REWRITE_ITEMS_PER_CMD : items;
 
-                if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
-                if (rioWriteBulkString(r,"SADD",4) == 0) return 0;
-                if (rioWriteBulkObject(r,key) == 0) return 0;
+                if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) 
+					return 0;
+                if (rioWriteBulkString(r,"SADD",4) == 0) 
+					return 0;
+                if (rioWriteBulkObject(r,key) == 0) 
+					return 0;
             }
-            if (rioWriteBulkString(r,ele,sdslen(ele)) == 0) return 0;
-            if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
+            if (rioWriteBulkString(r,ele,sdslen(ele)) == 0) 
+				return 0;
+            if (++count == AOF_REWRITE_ITEMS_PER_CMD) 
+				count = 0;
             items--;
         }
         dictReleaseIterator(di);
@@ -1021,21 +1024,27 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
             score = zzlGetScore(sptr);
 
             if (count == 0) {
-                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
-                    AOF_REWRITE_ITEMS_PER_CMD : items;
+                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ? AOF_REWRITE_ITEMS_PER_CMD : items;
 
-                if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
-                if (rioWriteBulkString(r,"ZADD",4) == 0) return 0;
-                if (rioWriteBulkObject(r,key) == 0) return 0;
+                if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) 
+					return 0;
+                if (rioWriteBulkString(r,"ZADD",4) == 0) 
+					return 0;
+                if (rioWriteBulkObject(r,key) == 0) 
+					return 0;
             }
-            if (rioWriteBulkDouble(r,score) == 0) return 0;
+            if (rioWriteBulkDouble(r,score) == 0) 
+				return 0;
             if (vstr != NULL) {
-                if (rioWriteBulkString(r,(char*)vstr,vlen) == 0) return 0;
+                if (rioWriteBulkString(r,(char*)vstr,vlen) == 0) 
+					return 0;
             } else {
-                if (rioWriteBulkLongLong(r,vll) == 0) return 0;
+                if (rioWriteBulkLongLong(r,vll) == 0) 
+					return 0;
             }
             zzlNext(zl,&eptr,&sptr);
-            if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
+            if (++count == AOF_REWRITE_ITEMS_PER_CMD) 
+				count = 0;
             items--;
         }
     } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
@@ -1048,16 +1057,21 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
             double *score = dictGetVal(de);
 
             if (count == 0) {
-                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
-                    AOF_REWRITE_ITEMS_PER_CMD : items;
+                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ? AOF_REWRITE_ITEMS_PER_CMD : items;
 
-                if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
-                if (rioWriteBulkString(r,"ZADD",4) == 0) return 0;
-                if (rioWriteBulkObject(r,key) == 0) return 0;
+                if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) 
+					return 0;
+                if (rioWriteBulkString(r,"ZADD",4) == 0) 
+					return 0;
+                if (rioWriteBulkObject(r,key) == 0) 
+					return 0;
             }
-            if (rioWriteBulkDouble(r,*score) == 0) return 0;
-            if (rioWriteBulkString(r,ele,sdslen(ele)) == 0) return 0;
-            if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
+            if (rioWriteBulkDouble(r,*score) == 0) 
+				return 0;
+            if (rioWriteBulkString(r,ele,sdslen(ele)) == 0) 
+				return 0;
+            if (++count == AOF_REWRITE_ITEMS_PER_CMD) 
+				count = 0;
             items--;
         }
         dictReleaseIterator(di);
@@ -1102,17 +1116,22 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
     hi = hashTypeInitIterator(o);
     while (hashTypeNext(hi) != C_ERR) {
         if (count == 0) {
-            int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
-                AOF_REWRITE_ITEMS_PER_CMD : items;
+            int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ? AOF_REWRITE_ITEMS_PER_CMD : items;
 
-            if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
-            if (rioWriteBulkString(r,"HMSET",5) == 0) return 0;
-            if (rioWriteBulkObject(r,key) == 0) return 0;
+            if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) 
+				return 0;
+            if (rioWriteBulkString(r,"HMSET",5) == 0) 
+				return 0;
+            if (rioWriteBulkObject(r,key) == 0) 
+				return 0;
         }
 
-        if (rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY) == 0) return 0;
-        if (rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE) == 0) return 0;
-        if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
+        if (rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY) == 0) 
+			return 0;
+        if (rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE) == 0) 
+			return 0;
+        if (++count == AOF_REWRITE_ITEMS_PER_CMD) 
+			count = 0;
         items--;
     }
 
@@ -1127,7 +1146,8 @@ int rioWriteBulkStreamID(rio *r,streamID *id) {
     int retval;
 
     sds replyid = sdscatfmt(sdsempty(),"%U-%U",id->ms,id->seq);
-    if ((retval = rioWriteBulkString(r,replyid,sdslen(replyid))) == 0) return 0;
+    if ((retval = rioWriteBulkString(r,replyid,sdslen(replyid))) == 0) 
+		return 0;
     sdsfree(replyid);
     return retval;
 }
@@ -1271,15 +1291,12 @@ int rewriteModuleObject(rio *r, robj *key, robj *o) {
     return io.error ? 0 : 1;
 }
 
-/* This function is called by the child rewriting the AOF file to read
- * the difference accumulated from the parent into a buffer, that is
- * concatenated at the end of the rewrite. */
+/* This function is called by the child rewriting the AOF file to read the difference accumulated from the parent into a buffer, that is concatenated at the end of the rewrite. */
 ssize_t aofReadDiffFromParent(void) {
     char buf[65536]; /* Default pipe buffer size on most Linux systems. */
     ssize_t nread, total = 0;
 
-    while ((nread =
-            read(server.aof_pipe_read_data_from_parent,buf,sizeof(buf))) > 0) {
+    while ((nread = read(server.aof_pipe_read_data_from_parent,buf,sizeof(buf))) > 0) {
         server.aof_child_diff = sdscatlen(server.aof_child_diff,buf,nread);
         total += nread;
     }
@@ -1806,3 +1823,7 @@ cleanup:
     if (server.aof_state == AOF_WAIT_REWRITE)
         server.aof_rewrite_scheduled = 1;
 }
+
+
+
+

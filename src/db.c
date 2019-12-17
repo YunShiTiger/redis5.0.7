@@ -681,15 +681,26 @@ void selectCommand(client *c) {
     }
 }
 
+/*
+ * 从当前数据库中随机返回一个 key
+ * 命令格式
+ *     RANDOMKEY 
+ * 返回值
+ *     当数据库不为空时，返回一个 key 。 当数据库为空时，返回 nil （windows 系统返回 null）
+ */
 void randomkeyCommand(client *c) {
     robj *key;
-
+	
+	//获取对应的随机键
     if ((key = dbRandomKey(c->db)) == NULL) {
+		//返回对应的空对象
         addReply(c,shared.nullbulk);
         return;
     }
-
+	
+	//向客户端返回对应的键
     addReplyBulk(c,key);
+	//减少对应的引用计数------>即释放对应的空间
     decrRefCount(key);
 }
 
@@ -949,216 +960,350 @@ cleanup:
 /* The SCAN command completely relies on scanGenericCommand. */
 void scanCommand(client *c) {
     unsigned long cursor;
-    if (parseScanCursorOrReply(c,c->argv[1],&cursor) == C_ERR) return;
+    if (parseScanCursorOrReply(c,c->argv[1],&cursor) == C_ERR) 
+		return;
     scanGenericCommand(c,NULL,cursor);
 }
 
+/*
+ * 用于返回当前数据库的 key 的数量
+ * 命令格式
+ *     DBSIZE
+ * 返回值
+ *     当前数据库的 key 的数量
+ */
 void dbsizeCommand(client *c) {
+	//向客户端返回当前库中键值对的数量
     addReplyLongLong(c,dictSize(c->db->dict));
 }
 
+/*
+ * 返回最近一次 Redis 成功将数据保存到磁盘上的时间，以 UNIX 时间戳格式表示
+ * 命令格式
+ *     LASTSAVE
+ * 返回值
+ *     字符串，文本行的集合
+ */
 void lastsaveCommand(client *c) {
     addReplyLongLong(c,server.lastsave);
 }
 
+/*
+ * 用于返回 key 所储存的值的类型
+ * 命令格式
+ *     TYPE KEY_NAME
+ * 返回值
+ *     返回 key 的数据类型，数据类型有 
+ *     none (key不存在) string (字符串) list (列表) set (集合) zset (有序集) hash (哈希表)
+ */
 void typeCommand(client *c) {
     robj *o;
     char *type;
-
+	
+	//获取键所对应的值对象
     o = lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOTOUCH);
+	//检测对应的值对象是否存在
     if (o == NULL) {
         type = "none";
     } else {
+    	//解析值对象的类型
         switch(o->type) {
-        case OBJ_STRING: type = "string"; break;
-        case OBJ_LIST: type = "list"; break;
-        case OBJ_SET: type = "set"; break;
-        case OBJ_ZSET: type = "zset"; break;
-        case OBJ_HASH: type = "hash"; break;
-        case OBJ_STREAM: type = "stream"; break;
+        case OBJ_STRING: 
+			type = "string"; 
+		break;
+        case OBJ_LIST: 
+			type = "list"; 
+			break;
+        case OBJ_SET: 
+			type = "set"; 
+			break;
+        case OBJ_ZSET: 
+			type = "zset"; 
+			break;
+        case OBJ_HASH: 
+			type = "hash"; 
+			break;
+        case OBJ_STREAM: 
+			type = "stream"; 
+			break;
         case OBJ_MODULE: {
             moduleValue *mv = o->ptr;
             type = mv->type->name;
         }; break;
-        default: type = "unknown"; break;
+        default: 
+			type = "unknown"; 
+			break;
         }
     }
+	//向客户端返回对应值对象的类型
     addReplyStatus(c,type);
 }
 
+/*
+ * Shutdown 命令执行以下操作
+ *     停止所有客户端
+ *     如果有至少一个保存点在等待，执行 SAVE 命令
+ *     如果 AOF 选项被打开，更新 AOF 文件
+ *     关闭 redis 服务器(server)
+ * 执行 SHUTDOWN SAVE 会强制让数据库执行保存操作，即使没有设定(configure)保存点
+ * 执行 SHUTDOWN NOSAVE 会阻止数据库执行保存操作，即使已经设定有一个或多个保存点(你可以将这一用法看作是强制停止服务器的一个假想的 ABORT 命令)
+ * 命令格式
+ *     SHUTDOWN [NOSAVE] [SAVE]
+ * 返回值
+ *     执行失败时返回错误。 执行成功时不返回任何信息，服务器和客户端的连接断开，客户端自动退出。 
+ */
 void shutdownCommand(client *c) {
     int flags = 0;
-
+	
+	//检测对应的参数个数是否合法
     if (c->argc > 2) {
+		//向客户端返回参数配置错误
         addReply(c,shared.syntaxerr);
         return;
     } else if (c->argc == 2) {
         if (!strcasecmp(c->argv[1]->ptr,"nosave")) {
+			//配置不进行保存操作处理
             flags |= SHUTDOWN_NOSAVE;
         } else if (!strcasecmp(c->argv[1]->ptr,"save")) {
+        	//配置进行保存操作处理
             flags |= SHUTDOWN_SAVE;
         } else {
+			//配置属性信息不正确的响应
             addReply(c,shared.syntaxerr);
             return;
         }
     }
     /* When SHUTDOWN is called while the server is loading a dataset in
      * memory we need to make sure no attempt is performed to save
-     * the dataset on shutdown (otherwise it could overwrite the current DB
-     * with half-read data).
-     *
+     * the dataset on shutdown (otherwise it could overwrite the current DB with half-read data).
      * Also when in Sentinel mode clear the SAVE flag and force NOSAVE. */
+    //如果服务器正在载入数据集或者是正在处于集群模式
     if (server.loading || server.sentinel_mode)
+		//清除SHUTDOWN_SAVE标志，强制设置为SHUTDOWN_NOSAVE
         flags = (flags & ~SHUTDOWN_SAVE) | SHUTDOWN_NOSAVE;
-    if (prepareForShutdown(flags) == C_OK) exit(0);
+
+	//准备停机，处理停机前的操作，例如杀死子进程，刷新缓冲区，关闭socket等
+    if (prepareForShutdown(flags) == C_OK) 
+		//触发关闭对应服务的处理
+		exit(0);
+	//向客户端响应进行停止服务失败的提示信息
     addReplyError(c,"Errors trying to SHUTDOWN. Check logs.");
 }
 
+/* 通用的进行键值对的键改名操作处理 */
 void renameGenericCommand(client *c, int nx) {
     robj *o;
     long long expire;
     int samekey = 0;
 
-    /* When source and dest key is the same, no operation is performed,
-     * if the key exists, however we still return an error on unexisting key. */
-    if (sdscmp(c->argv[1]->ptr,c->argv[2]->ptr) == 0) samekey = 1;
+    /* When source and dest key is the same, no operation is performed, if the key exists, however we still return an error on unexisting key. */
+	//检测给定的两个键的名称是否相同
+	if (sdscmp(c->argv[1]->ptr,c->argv[2]->ptr) == 0) 
+		//设置新老键名相同的标识
+		samekey = 1;
 
+	//获取对应的老键所对应的对象是否存在
     if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr)) == NULL)
         return;
 
+	//检测进行改名改成相同的特殊处理
     if (samekey) {
+		//根据标识返回对应的响应结果
         addReply(c,nx ? shared.czero : shared.ok);
         return;
     }
 
+	//提前进行值对象引用计数的增加处理  ---->因为后面 牵扯到 添加键值对 和移除 老的键值对
     incrRefCount(o);
+	//获取对应的值对象的过期时间
     expire = getExpire(c->db,c->argv[1]);
+	//检测改名后的键值对是否存在
     if (lookupKeyWrite(c->db,c->argv[2]) != NULL) {
+		//检测是否是不存在才进行改名操作处理的标识
         if (nx) {
+			//减少对应的引用计数
             decrRefCount(o);
+			//向客户端返回对应的标识
             addReply(c,shared.czero);
             return;
         }
-        /* Overwrite: delete the old key before creating the new one
-         * with the same name. */
+        /* Overwrite: delete the old key before creating the new one with the same name. */
+		//删除改名后对应的键值对
         dbDelete(c->db,c->argv[2]);
     }
+	//将新的键值对添加到redis数据库字典中
     dbAdd(c->db,c->argv[2],o);
-    if (expire != -1) setExpire(c,c->db,c->argv[2],expire);
+	//检测是否还有剩余的过期时间值
+    if (expire != -1) 
+		//给修改后的键值对设置剩余的过期时间
+		setExpire(c,c->db,c->argv[2],expire);
+
+	//删除对应的老键值对
     dbDelete(c->db,c->argv[1]);
+	//发送对应键值对空间变化的信号
     signalModifiedKey(c->db,c->argv[1]);
     signalModifiedKey(c->db,c->argv[2]);
-    notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_from",
-        c->argv[1],c->db->id);
-    notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_to",
-        c->argv[2],c->db->id);
+	//发送触发相关命令的通知
+    notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_from", c->argv[1],c->db->id);
+    notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_to", c->argv[2],c->db->id);
+	//增加脏计数值
     server.dirty++;
+	//向客户端返回对应的响应标识
     addReply(c,nx ? shared.cone : shared.ok);
 }
 
+/*
+ * 用于修改 key 的名称 不管修改后的键对象是否存在
+ * 命令格式
+ *     RENAME OLD_KEY_NAME NEW_KEY_NAME
+ * 返回值
+ *     改名成功时提示 OK ，失败时候返回一个错误
+ *     当 OLD_KEY_NAME 和 NEW_KEY_NAME 相同，或者 OLD_KEY_NAME 不存在时，返回一个错误。 当 NEW_KEY_NAME 已经存在时， RENAME 命令将覆盖旧值。
+ */
 void renameCommand(client *c) {
     renameGenericCommand(c,0);
 }
 
+/*
+ * 用于在新的 key 不存在时修改 key 的名称
+ * 命令格式
+ *     RENAMENX OLD_KEY_NAME NEW_KEY_NAME
+ * 返回值
+ *     修改成功时，返回 1 。 如果 NEW_KEY_NAME 已经存在，返回 0 
+ */
 void renamenxCommand(client *c) {
     renameGenericCommand(c,1);
 }
 
+/*
+ * 用于将当前数据库的 key 移动到给定的数据库 db 当中
+ * 命令格式
+ *     MOVE KEY_NAME DESTINATION_DATABASE
+ * 返回值
+ *     移动成功返回 1 ，失败则返回 0
+ */
 void moveCommand(client *c) {
     robj *o;
     redisDb *src, *dst;
     int srcid;
     long long dbid, expire;
 
+	//检测当前是否开启集群模式
     if (server.cluster_enabled) {
+		//向客户端返回集群模式下不能进行移动元素的处理
         addReplyError(c,"MOVE is not allowed in cluster mode");
         return;
     }
 
     /* Obtain source and target DB pointers */
+	//获得源数据库和源数据库的id
     src = c->db;
     srcid = c->db->id;
 
-    if (getLongLongFromObject(c->argv[2],&dbid) == C_ERR ||
-        dbid < INT_MIN || dbid > INT_MAX ||
-        selectDb(c,dbid) == C_ERR)
-    {
-        addReply(c,shared.outofrangeerr);
+	//获取对应的目的库索引值 索引值合法 进行切换到对应的索引库
+    if (getLongLongFromObject(c->argv[2],&dbid) == C_ERR || dbid < INT_MIN || dbid > INT_MAX || selectDb(c,dbid) == C_ERR) {
+		//向客户端返回目标库索引越界标识
+		addReply(c,shared.outofrangeerr);
         return;
     }
+	//获取目标库
     dst = c->db;
+	//切换回源数据库
     selectDb(c,srcid); /* Back to the source DB */
 
-    /* If the user is moving using as target the same
-     * DB as the source DB it is probably an error. */
+    /* If the user is moving using as target the same DB as the source DB it is probably an error. */
+	//检测前后切换的数据库相同
     if (src == dst) {
+		//返回相同库不能进行移动操作处理
         addReply(c,shared.sameobjecterr);
         return;
     }
 
     /* Check if the element exists and get a reference */
+	//以写操作方式取出源数据库的值对象
     o = lookupKeyWrite(c->db,c->argv[1]);
+	//检测对应的值对象是否存在
     if (!o) {
+		//向客户端返回移动键值对失败标识
         addReply(c,shared.czero);
         return;
     }
+	//获取配置的过期时间
     expire = getExpire(c->db,c->argv[1]);
 
     /* Return zero if the key already exists in the target DB */
+	//判断当前key是否存在于目标数据库，存在直接返回不能移动键值对的处理
     if (lookupKeyWrite(dst,c->argv[1]) != NULL) {
+		//向客户端返回移动键值对失败标识
         addReply(c,shared.czero);
         return;
     }
+	//将key-value对象添加到目标数据库中
     dbAdd(dst,c->argv[1],o);
-    if (expire != -1) setExpire(c,dst,c->argv[1],expire);
+	//检测是否需要设置过期时间
+    if (expire != -1) 
+		//设置移动后key的过期时间
+		setExpire(c,dst,c->argv[1],expire);
+	//增加引用计数值 因为后面有对应的删除键值对的处理
     incrRefCount(o);
 
     /* OK! key moved, free the entry in the source DB */
+	//从源数据库中将key和关联的值对象删除
     dbDelete(src,c->argv[1]);
+	//更新脏计数值
     server.dirty++;
+	//向客户端返回移动键值对成功标识
     addReply(c,shared.cone);
 }
 
 /* Helper function for dbSwapDatabases(): scans the list of keys that have
  * one or more blocked clients for B[LR]POP or other blocking commands
- * and signal the keys as ready if they are of the right type. See the comment
- * where the function is used for more info. */
+ * and signal the keys as ready if they are of the right type. See the comment where the function is used for more info. */
+/* 检测堵塞字典中的对象是否有准备好的键值对存在 */
 void scanDatabaseForReadyLists(redisDb *db) {
     dictEntry *de;
+	//获取对应的堵塞字典结构的安全迭代器
     dictIterator *di = dictGetSafeIterator(db->blocking_keys);
+	//循环检测对应的处于堵塞中的键对象元素是否可以解除堵塞
     while((de = dictNext(di)) != NULL) {
+		//获取处于堵塞的键对象
         robj *key = dictGetKey(de);
+		//在数据字典中尝试获取对应的值对象
         robj *value = lookupKey(db,key,LOOKUP_NOTOUCH);
-        if (value && (value->type == OBJ_LIST ||
-                      value->type == OBJ_STREAM ||
-                      value->type == OBJ_ZSET))
+		//检测对应的值对象是否存在且类型是否是规定的类型
+        if (value && (value->type == OBJ_LIST || value->type == OBJ_STREAM || value->type == OBJ_ZSET))
+			//发送对应的键对象已经准备成功的处理
             signalKeyAsReady(db, key);
     }
+	//释放对应的安全迭代器空间
     dictReleaseIterator(di);
 }
 
-/* Swap two databases at runtime so that all clients will magically see
- * the new database even if already connected. Note that the client
+/* Swap two databases at runtime so that all clients will magically see the new database even if already connected. Note that the client
  * structure c->db points to a given DB, so we need to be smarter and
- * swap the underlying referenced structures, otherwise we would need
- * to fix all the references to the Redis DB structure.
+ * swap the underlying referenced structures, otherwise we would need to fix all the references to the Redis DB structure.
  *
- * Returns C_ERR if at least one of the DB ids are out of range, otherwise
- * C_OK is returned. */
+ * Returns C_ERR if at least one of the DB ids are out of range, otherwise C_OK is returned. */
+/* 进行切换两个索引对应的数据库数据 */
 int dbSwapDatabases(int id1, int id2) {
-    if (id1 < 0 || id1 >= server.dbnum ||
-        id2 < 0 || id2 >= server.dbnum) return C_ERR;
-    if (id1 == id2) return C_OK;
+	//检测对应的索引值是否合法
+    if (id1 < 0 || id1 >= server.dbnum || id2 < 0 || id2 >= server.dbnum) 
+        return C_ERR;
+	//检测两个索引值是否相同
+    if (id1 == id2) 
+		return C_OK;
+	//中间过渡值
     redisDb aux = server.db[id1];
+	//获取对应库索引的库数据
     redisDb *db1 = &server.db[id1], *db2 = &server.db[id2];
 
-    /* Swap hash tables. Note that we don't swap blocking_keys,
-     * ready_keys and watched_keys, since we want clients to
-     * remain in the same DB they were. */
+    /* Swap hash tables. Note that we don't swap blocking_keys, ready_keys and watched_keys, since we want clients to remain in the same DB they were. */
+    //将第二个索引的数据迁移到第一个索引上 注意这个地方只是迁移了 数据字典数据 和 过期字典数据
     db1->dict = db2->dict;
     db1->expires = db2->expires;
     db1->avg_ttl = db2->avg_ttl;
 
+	//将第一个索引的数据迁移到第二个索引上
     db2->dict = aux.dict;
     db2->expires = aux.expires;
     db2->avg_ttl = aux.avg_ttl;
@@ -1170,38 +1315,52 @@ int dbSwapDatabases(int id1, int id2) {
      *
      * However normally we only do this check for efficiency reasons
      * in dbAdd() when a list is created. So here we need to rescan
-     * the list of clients blocked on lists and signal lists as ready
-     * if needed. */
+     * the list of clients blocked on lists and signal lists as ready if needed. */
+    //在第一个库上触发监听的List堵塞是否可以开启
     scanDatabaseForReadyLists(db1);
+	//在第二个库上触发监听的List堵塞是否可以开启
     scanDatabaseForReadyLists(db2);
+	//返回切换数据库操作成功标识
     return C_OK;
 }
 
 /* SWAPDB db1 db2 */
+/*
+ * 将给定的两个索引值对应的库数据进行交换操作处理
+ * 命令格式
+ *     SWAPDB db1 db2
+ * 返回值
+ *     交换成功返回成功标识
+ */
 void swapdbCommand(client *c) {
     long id1, id2;
 
     /* Not allowed in cluster mode: we have just DB 0 there. */
+	//检测是否开启了集群模式
     if (server.cluster_enabled) {
         addReplyError(c,"SWAPDB is not allowed in cluster mode");
         return;
     }
 
     /* Get the two DBs indexes. */
-    if (getLongFromObjectOrReply(c, c->argv[1], &id1,
-        "invalid first DB index") != C_OK)
+	//获取第一个库的索引值
+    if (getLongFromObjectOrReply(c, c->argv[1], &id1, "invalid first DB index") != C_OK)
         return;
-
-    if (getLongFromObjectOrReply(c, c->argv[2], &id2,
-        "invalid second DB index") != C_OK)
+	
+	//获取第二个库的索引值
+    if (getLongFromObjectOrReply(c, c->argv[2], &id2, "invalid second DB index") != C_OK)
         return;
 
     /* Swap... */
+	//尝试进行切换操作处理
     if (dbSwapDatabases(id1,id2) == C_ERR) {
+		//尝试切换失败 向客户端发送失败原因
         addReplyError(c,"DB index is out of range");
         return;
     } else {
+		//增加对应的脏计数值
         server.dirty++;
+		//向客户端回复操作成功标识
         addReply(c,shared.ok);
     }
 }
@@ -1582,8 +1741,7 @@ int *migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkey
 }
 
 /* Helper function to extract keys from following commands:
- * GEORADIUS key x y radius unit [WITHDIST] [WITHHASH] [WITHCOORD] [ASC|DESC]
- *                             [COUNT count] [STORE key] [STOREDIST key]
+ * GEORADIUS key x y radius unit [WITHDIST] [WITHHASH] [WITHCOORD] [ASC|DESC] [COUNT count] [STORE key] [STOREDIST key]
  * GEORADIUSBYMEMBER key member radius unit ... options ... */
 int *georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
     int i, num, *keys;
@@ -1627,8 +1785,7 @@ int *xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys)
 
     /* We need to parse the options of the command in order to seek the first
      * "STREAMS" string which is actually the option. This is needed because
-     * "STREAMS" could also be the name of the consumer group and even the
-     * name of the stream key. */
+     * "STREAMS" could also be the name of the consumer group and even the name of the stream key. */
     int streams_pos = -1;
     for (i = 1; i < argc; i++) {
         char *arg = argv[i]->ptr;

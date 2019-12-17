@@ -924,24 +924,17 @@ void rpoplpushCommand(client *c) {
  *----------------------------------------------------------------------------*/
 
 /* This is a helper function for handleClientsBlockedOnLists(). It's work
- * is to serve a specific client (receiver) that is blocked on 'key'
- * in the context of the specified 'db', doing the following:
+ * is to serve a specific client (receiver) that is blocked on 'key' in the context of the specified 'db', doing the following:
  *
  * 1) Provide the client with the 'value' element.
- * 2) If the dstkey is not NULL (we are serving a BRPOPLPUSH) also push the
- *    'value' element on the destination list (the LPUSH side of the command).
- * 3) Propagate the resulting BRPOP, BLPOP and additional LPUSH if any into
- *    the AOF and replication channel.
+ * 2) If the dstkey is not NULL (we are serving a BRPOPLPUSH) also push the 'value' element on the destination list (the LPUSH side of the command).
+ * 3) Propagate the resulting BRPOP, BLPOP and additional LPUSH if any into the AOF and replication channel.
  *
  * The argument 'where' is LIST_TAIL or LIST_HEAD, and indicates if the
- * 'value' element was popped from the head (BLPOP) or tail (BRPOP) so that
- * we can propagate the command properly.
+ * 'value' element was popped from the head (BLPOP) or tail (BRPOP) so that we can propagate the command properly.
  *
- * The function returns C_OK if we are able to serve the client, otherwise
- * C_ERR is returned to signal the caller that the list POP operation
- * should be undone as the client was not served: This only happens for
- * BRPOPLPUSH that fails to push the value to the destination key as it is
- * of the wrong type. */
+ * The function returns C_OK if we are able to serve the client, otherwise C_ERR is returned to signal the caller that the list POP operation
+ * should be undone as the client was not served: This only happens for BRPOPLPUSH that fails to push the value to the destination key as it is of the wrong type. */
 int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb *db, robj *value, int where) {
     robj *argv[3];
 
@@ -963,9 +956,7 @@ int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb 
         /* BRPOPLPUSH */
         robj *dstobj =
             lookupKeyWrite(receiver->db,dstkey);
-        if (!(dstobj &&
-             checkType(receiver,dstobj,OBJ_LIST)))
-        {
+        if (!(dstobj && checkType(receiver,dstobj,OBJ_LIST))) {
             /* Propagate the RPOP operation. */
             argv[0] = shared.rpop;
             argv[1] = key;
@@ -1001,34 +992,51 @@ void blockingPopGenericCommand(client *c, int where) {
     mstime_t timeout;
     int j;
 
-    if (getTimeoutFromObjectOrReply(c,c->argv[c->argc-1],&timeout,UNIT_SECONDS)
-        != C_OK) return;
+	//获取对应的配置的超时时间
+    if (getTimeoutFromObjectOrReply(c,c->argv[c->argc-1],&timeout,UNIT_SECONDS) != C_OK) 
+        return;
 
+	//循环遍历所有给定的键对象所对应的值对象 检测是否有对应的值对象是否有元素
     for (j = 1; j < c->argc-1; j++) {
+		//根据键对象获取对应的值对象
         o = lookupKeyWrite(c->db,c->argv[j]);
+		//检测对应的值对象是否存在
         if (o != NULL) {
+			//检测对应的值对象的类型是否是列表类型的对象
             if (o->type != OBJ_LIST) {
+				//返回对应的对象类型不匹配的错误
                 addReply(c,shared.wrongtypeerr);
                 return;
             } else {
+				//检测列表值对象中是否有对应的元素
                 if (listTypeLength(o) != 0) {
                     /* Non empty list, this is like a non normal [LR]POP. */
                     char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
+					//弹出对应的数据元素
                     robj *value = listTypePop(o,where);
+					//检测获取数据元素是否成功
                     serverAssert(value != NULL);
 
+					//开辟对应的2个空间进行存储返回结果
                     addReplyMultiBulkLen(c,2);
+					//将对应的键对象存储到结果中
                     addReplyBulk(c,c->argv[j]);
+					//将对应的元素值对象存储到空间中
                     addReplyBulk(c,value);
+					//减少元素对象的引用计数---->即触发释放对象空间处理
                     decrRefCount(value);
-                    notifyKeyspaceEvent(NOTIFY_LIST,event,
-                                        c->argv[j],c->db->id);
+					//发送触发对应事件的命令通知
+                    notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[j],c->db->id);
+					//检测对应的列表对象是否有元素
                     if (listTypeLength(o) == 0) {
+						//在redis数据库字典中删除对应的键值对
                         dbDelete(c->db,c->argv[j]);
-                        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",
-                                            c->argv[j],c->db->id);
+						//发送删除对应键值对的消息
+                        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[j],c->db->id);
                     }
+					//发送对应键空间发送变化的通知
                     signalModifiedKey(c->db,c->argv[j]);
+					//增加对应的脏数据计数值
                     server.dirty++;
 
                     /* Replicate it as an [LR]POP instead of B[LR]POP. */
@@ -1046,39 +1054,69 @@ void blockingPopGenericCommand(client *c, int where) {
     }
 
     /* If the list is empty or the key does not exists we must block */
+	//经过上述处理仍然没有得到对应的响应结果 触发堵塞客户端处理 等待对应的键空间准备数据
     blockForKeys(c,BLOCKED_LIST,c->argv + 1,c->argc - 2,timeout,NULL,NULL);
 }
 
+/*
+ * 移出并获取列表的第一个元素， 如果列表没有元素会阻塞列表直到等待超时或发现可弹出元素为止
+ * 命令格式
+ *     BLPOP LIST1 LIST2 .. LISTN TIMEOUT
+ * 返回值
+ *     如果列表为空，返回一个 nil。 否则，返回一个含有两个元素的列表，第一个元素是被弹出元素所属的 key ，第二个元素是被弹出元素的值
+ */
 void blpopCommand(client *c) {
     blockingPopGenericCommand(c,LIST_HEAD);
 }
 
+/*
+ * 移出并获取列表的最后一个元素， 如果列表没有元素会阻塞列表直到等待超时或发现可弹出元素为止
+ * 命令格式
+ *     BRPOP LIST1 LIST2 .. LISTN TIMEOUT
+ * 返回值
+ *     假如在指定时间内没有任何元素被弹出，则返回一个 nil 和等待时长。 反之，返回一个含有两个元素的列表，第一个元素是被弹出元素所属的 key ，第二个元素是被弹出元素的值。
+ */
 void brpopCommand(client *c) {
     blockingPopGenericCommand(c,LIST_TAIL);
 }
 
+/*
+ * 从列表中弹出一个值，将弹出的元素插入到另外一个列表中并返回它； 如果列表没有元素会阻塞列表直到等待超时或发现可弹出元素为止
+ * 命令格式
+ *     BRPOPLPUSH LIST1 ANOTHER_LIST TIMEOUT
+ * 返回值
+ *     假如在指定时间内没有任何元素被弹出，则返回一个 nil 和等待时长。 反之，返回一个含有两个元素的列表，第一个元素是被弹出元素的值，第二个元素是等待时长
+ */
 void brpoplpushCommand(client *c) {
     mstime_t timeout;
 
-    if (getTimeoutFromObjectOrReply(c,c->argv[3],&timeout,UNIT_SECONDS)
-        != C_OK) return;
+	//获取对应的超时时间值
+    if (getTimeoutFromObjectOrReply(c,c->argv[3],&timeout,UNIT_SECONDS) != C_OK) 
+		return;
 
+	//获取键对象对应的值对象
     robj *key = lookupKeyWrite(c->db, c->argv[1]);
-
+	//检测对应的值对象是否存在
     if (key == NULL) {
+		//检测客户端当前的类型是否是CLIENT_MULTI 类型 即事物处理中
         if (c->flags & CLIENT_MULTI) {
             /* Blocking against an empty list in a multi state returns immediately. */
             addReply(c, shared.nullbulk);
         } else {
             /* The list is empty and the client blocks. */
+			//处理堵塞操作
             blockForKeys(c,BLOCKED_LIST,c->argv + 1,1,timeout,c->argv[2],NULL);
         }
     } else {
+    	//存在 检测对应的类型是否是列表对象类型
         if (key->type != OBJ_LIST) {
+			//返回客户端类型错误响应
             addReply(c, shared.wrongtypeerr);
         } else {
             /* The list exists and has elements, so the regular rpoplpushCommand is executed. */
+			//检测对应的列表对象的元素个数是否大于0
             serverAssertWithInfo(c,key,listTypeLength(key) > 0);
+			//执行相应的弹出和压入处理
             rpoplpushCommand(c);
         }
     }

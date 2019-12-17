@@ -3475,8 +3475,7 @@ loaderr:
     return 0; /* Never reached. */
 }
 
-/* Iterate over modules, and trigger rdb aux saving for the ones modules types
- * who asked for it. */
+/* Iterate over modules, and trigger rdb aux saving for the ones modules types who asked for it. */
 ssize_t rdbSaveModulesAux(rio *rdb, int when) {
     size_t total_written = 0;
     dictIterator *di = dictGetIterator(modules);

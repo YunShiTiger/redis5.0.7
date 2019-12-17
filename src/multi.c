@@ -1,30 +1,5 @@
 /*
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "server.h"
@@ -41,11 +16,9 @@ void initClientMultiState(client *c) {
 /* Release all the resources associated with MULTI/EXEC state */
 void freeClientMultiState(client *c) {
     int j;
-
     for (j = 0; j < c->mstate.count; j++) {
         int i;
         multiCmd *mc = c->mstate.commands+j;
-
         for (i = 0; i < mc->argc; i++)
             decrRefCount(mc->argv[i]);
         zfree(mc->argv);
@@ -58,8 +31,7 @@ void queueMultiCommand(client *c) {
     multiCmd *mc;
     int j;
 
-    c->mstate.commands = zrealloc(c->mstate.commands,
-            sizeof(multiCmd)*(c->mstate.count+1));
+    c->mstate.commands = zrealloc(c->mstate.commands,sizeof(multiCmd)*(c->mstate.count+1));
     mc = c->mstate.commands+c->mstate.count;
     mc->cmd = c->cmd;
     mc->argc = c->argc;
@@ -78,8 +50,7 @@ void discardTransaction(client *c) {
     unwatchAllKeys(c);
 }
 
-/* Flag the transacation as DIRTY_EXEC so that EXEC will fail.
- * Should be called every time there is an error while queueing a command. */
+/* Flag the transacation as DIRTY_EXEC so that EXEC will fail. Should be called every time there is an error while queueing a command. */
 void flagTransaction(client *c) {
     if (c->flags & CLIENT_MULTI)
         c->flags |= CLIENT_DIRTY_EXEC;
@@ -108,8 +79,7 @@ void discardCommand(client *c) {
 void execCommandPropagateMulti(client *c) {
     robj *multistring = createStringObject("MULTI",5);
 
-    propagate(server.multiCommand,c->db->id,&multistring,1,
-              PROPAGATE_AOF|PROPAGATE_REPL);
+    propagate(server.multiCommand,c->db->id,&multistring,1,PROPAGATE_AOF|PROPAGATE_REPL);
     decrRefCount(multistring);
 }
 
@@ -133,8 +103,7 @@ void execCommand(client *c) {
      * (technically it is not an error but a special behavior), while
      * in the second an EXECABORT error is returned. */
     if (c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC)) {
-        addReply(c, c->flags & CLIENT_DIRTY_EXEC ? shared.execaborterr :
-                                                  shared.nullmultibulk);
+        addReply(c, c->flags & CLIENT_DIRTY_EXEC ? shared.execaborterr : shared.nullmultibulk);
         discardTransaction(c);
         goto handle_monitor;
     }
@@ -144,9 +113,7 @@ void execCommand(client *c) {
      * was initiated when the instance was a master or a writable replica and
      * then the configuration changed (for example instance was turned into
      * a replica). */
-    if (!server.loading && server.masterhost && server.repl_slave_ro &&
-        !(c->flags & CLIENT_MASTER) && c->mstate.cmd_flags & CMD_WRITE)
-    {
+    if (!server.loading && server.masterhost && server.repl_slave_ro && !(c->flags & CLIENT_MASTER) && c->mstate.cmd_flags & CMD_WRITE) {
         addReplyError(c,
             "Transaction contains write commands but instance "
             "is now a read-only slave. EXEC aborted.");
@@ -223,8 +190,7 @@ handle_monitor:
  * un-watch such keys when the client is freed or when UNWATCH is called. */
 
 /* In the client->watched_keys list we need to use watchedKey structures
- * as in order to identify a key in Redis we need both the key name and the
- * DB */
+ * as in order to identify a key in Redis we need both the key name and the DB */
 typedef struct watchedKey {
     robj *key;
     redisDb *db;
@@ -260,8 +226,7 @@ void watchForKey(client *c, robj *key) {
     listAddNodeTail(c->watched_keys,wk);
 }
 
-/* Unwatch all the keys watched by this client. To clean the EXEC dirty
- * flag is up to the caller. */
+/* Unwatch all the keys watched by this client. To clean the EXEC dirty flag is up to the caller. */
 void unwatchAllKeys(client *c) {
     listIter li;
     listNode *ln;
@@ -272,8 +237,7 @@ void unwatchAllKeys(client *c) {
         list *clients;
         watchedKey *wk;
 
-        /* Lookup the watched key -> clients list and remove the client
-         * from the list */
+        /* Lookup the watched key -> clients list and remove the client from the list */
         wk = listNodeValue(ln);
         clients = dictFetchValue(wk->db->watched_keys, wk->key);
         serverAssertWithInfo(c,NULL,clients != NULL);
@@ -288,8 +252,7 @@ void unwatchAllKeys(client *c) {
     }
 }
 
-/* "Touch" a key, so that if this key is being WATCHed by some client the
- * next EXEC will fail. */
+/* "Touch" a key, so that if this key is being WATCHed by some client the next EXEC will fail. */
 void touchWatchedKey(redisDb *db, robj *key) {
     list *clients;
     listIter li;
@@ -311,8 +274,7 @@ void touchWatchedKey(redisDb *db, robj *key) {
 
 /* On FLUSHDB or FLUSHALL all the watched keys that are present before the
  * flush but will be deleted as effect of the flushing operation should
- * be touched. "dbid" is the DB that's getting the flush. -1 if it is
- * a FLUSHALL operation (all the DBs flushed). */
+ * be touched. "dbid" is the DB that's getting the flush. -1 if it is a FLUSHALL operation (all the DBs flushed). */
 void touchWatchedKeysOnFlush(int dbid) {
     listIter li1, li2;
     listNode *ln;
@@ -326,8 +288,7 @@ void touchWatchedKeysOnFlush(int dbid) {
             watchedKey *wk = listNodeValue(ln);
 
             /* For every watched key matching the specified DB, if the
-             * key exists, mark the client as dirty, as the key will be
-             * removed. */
+             * key exists, mark the client as dirty, as the key will be removed. */
             if (dbid == -1 || wk->db->id == dbid) {
                 if (dictFind(wk->db->dict, wk->key->ptr) != NULL)
                     c->flags |= CLIENT_DIRTY_CAS;
@@ -353,3 +314,8 @@ void unwatchCommand(client *c) {
     c->flags &= (~CLIENT_DIRTY_CAS);
     addReply(c,shared.ok);
 }
+
+
+
+
+

@@ -1,34 +1,4 @@
 /* blocked.c - generic support for blocking operations like BLPOP & WAIT.
- *
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
- *
- * ---------------------------------------------------------------------------
- *
  * API:
  *
  * getTimeoutFromObjectOrReply() is just an utility function to parse a
@@ -96,13 +66,15 @@ int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int 
     return C_OK;
 }
 
-/* Block a client for the specific operation type. Once the CLIENT_BLOCKED
- * flag is set client query buffer is not longer processed, but accumulated,
- * and will be processed when the client is unblocked. */
+/* Block a client for the specific operation type. Once the CLIENT_BLOCKED flag is set client query buffer is not longer processed, but accumulated, and will be processed when the client is unblocked. */
 void blockClient(client *c, int btype) {
+	//设置客户端处于堵塞状态
     c->flags |= CLIENT_BLOCKED;
+	//设置客户端堵塞的类型
     c->btype = btype;
+	//增加服务器的堵塞客户端的数量值
     server.blocked_clients++;
+	//增加客户端在某种类型上堵塞的数量值
     server.blocked_clients_by_type[btype]++;
 }
 
@@ -503,49 +475,62 @@ void handleClientsBlockedOnKeys(void) {
  * waiting for an empty key in order to awake the client. The client is blocked
  * for all the 'numkeys' keys as in the 'keys' argument. When we block for
  * stream keys, we also provide an array of streamID structures: clients will
- * be unblocked only when items with an ID greater or equal to the specified
- * one is appended to the stream. */
+ * be unblocked only when items with an ID greater or equal to the specified one is appended to the stream. */
+/* 处理对给定客户端在对应的键对象进行堵塞操作处理 */
 void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, robj *target, streamID *ids) {
     dictEntry *de;
     list *l;
     int j;
 
+	//在客户端上记录堵塞的超时时间值
     c->bpop.timeout = timeout;
     c->bpop.target = target;
 
-    if (target != NULL) incrRefCount(target);
+    if (target != NULL) 
+		incrRefCount(target);
 
+	//循环处理堵塞的多个键对象
     for (j = 0; j < numkeys; j++) {
-        /* The value associated with the key name in the bpop.keys dictionary
-         * is NULL for lists and sorted sets, or the stream ID for streams. */
+        /* The value associated with the key name in the bpop.keys dictionary is NULL for lists and sorted sets, or the stream ID for streams. */
         void *key_data = NULL;
+
+		//检测是否是堵塞的流对象类型
         if (btype == BLOCKED_STREAM) {
             key_data = zmalloc(sizeof(streamID));
             memcpy(key_data,ids+j,sizeof(streamID));
         }
 
         /* If the key already exists in the dictionary ignore it. */
+		//检测对应的客户端堵塞字典中是否已经存在对应的堵塞的键对象  防止多次插入相同的堵塞键对象
         if (dictAdd(c->bpop.keys,keys[j],key_data) != DICT_OK) {
             zfree(key_data);
             continue;
         }
+		//增加对应的引用计数值
         incrRefCount(keys[j]);
 
         /* And in the other "side", to map keys -> clients */
+		//获取堵塞在对应键对象上的值对象
         de = dictFind(c->db->blocking_keys,keys[j]);
+		//检测对应的列表值对象是否存在
         if (de == NULL) {
             int retval;
-
             /* For every key we take a list of clients blocked for it */
+			//创建对应的堵塞在同一个键上的列表值对象
             l = listCreate();
+			//将对应的键值对添加到堵塞字典上
             retval = dictAdd(c->db->blocking_keys,keys[j],l);
+			//增加对应的引用计数  这里增加引用计数是 在上述的字典中添加了对应的键值对 防止其他地方也引用 导致释放
             incrRefCount(keys[j]);
             serverAssertWithInfo(c,keys[j],retval == DICT_OK);
         } else {
+			//列表对象存储 获取对应的堵塞列表对象
             l = dictGetVal(de);
         }
+		//将对应的需要添加到堵塞列表的客户端添加到堵塞列表上
         listAddNodeTail(l,c);
     }
+	//触发堵塞客户端的处理
     blockClient(c,btype);
 }
 

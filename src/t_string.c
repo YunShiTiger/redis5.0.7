@@ -322,226 +322,406 @@ void setrangeCommand(client *c) {
     addReplyLongLong(c,sdslen(o->ptr));
 }
 
+/* 
+ * 用于获取存储在指定 key 中字符串的子字符串。字符串的截取范围由 start 和 end 两个偏移量决定(包括 start 和 end 在内)
+ * 命令格式
+ *     GETRANGE KEY_NAME start end
+ * 返回值
+ *     截取得到的子字符串
+ */
 void getrangeCommand(client *c) {
     robj *o;
     long long start, end;
     char *str, llbuf[32];
     size_t strlen;
-
+	
+	//获取截取起始点
     if (getLongLongFromObjectOrReply(c,c->argv[2],&start,NULL) != C_OK)
         return;
+	//获取截取结束点
     if (getLongLongFromObjectOrReply(c,c->argv[3],&end,NULL) != C_OK)
         return;
+	
+	//检测对应键对象是否存在,且对应的对象是否是字符串类型对象
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptybulk)) == NULL || checkType(c,o,OBJ_STRING)) 
 		return;
-
+	
+	//检测对应的字符串对象的编码方式是否是整数类型
     if (o->encoding == OBJ_ENCODING_INT) {
         str = llbuf;
+		//将对应的整数类型转换成对应的字符串形式
         strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
     } else {
+		//获取对应的字符串数据指向位置
         str = o->ptr;
         strlen = sdslen(str);
     }
 
     /* Convert negative indexes */
+	//处理起始和结束位置全为负值,且范围不对的错误
     if (start < 0 && end < 0 && start > end) {
         addReply(c,shared.emptybulk);
         return;
     }
+	//处理负值问题 即尝试转换成对应的正向数值
     if (start < 0) 
 		start = strlen+start;
     if (end < 0) 
 		end = strlen+end;
+	
+	//进一步处理负值问题
     if (start < 0) 
 		start = 0;
     if (end < 0) 
 		end = 0;
+	
+	//设置结束位置大于字符串长度问题
     if ((unsigned long long)end >= strlen) 
 		end = strlen-1;
 
     /* Precondition: end >= 0 && end < strlen, so the only condition where nothing can be returned is: start > end. */
-    if (start > end || strlen == 0) {
+	//进一步检测范围是否合法
+	if (start > end || strlen == 0) {
+		//向客户端返回空对象
         addReply(c,shared.emptybulk);
     } else {
+    	//向客户端返回指定长度的字符串内容
         addReplyBulkCBuffer(c,(char*)str+start,end-start+1);
     }
 }
 
+/* 
+ * 返回所有(一个或多个)给定 key 的值。 如果给定的 key 里面，有某个 key 不存在，那么这个 key 返回特殊值 nil
+ * 命令格式
+ *      MGET KEY1 KEY2 .. KEYN
+ * 返回值
+ *     一个包含所有给定 key 的值的列表
+ */
 void mgetCommand(client *c) {
     int j;
-
+	
+	//设定需要返回客户端的空间个数大小
     addReplyMultiBulkLen(c,c->argc-1);
+	//循环获取对应的字符串对象
     for (j = 1; j < c->argc; j++) {
+		//获取对应键所对应的值对象
         robj *o = lookupKeyRead(c->db,c->argv[j]);
+		//检测对应的值对象是否存在
         if (o == NULL) {
+			//设置对应的空对象
             addReply(c,shared.nullbulk);
         } else {
+        	//检测对应的类型是否是字符串类型
             if (o->type != OBJ_STRING) {
+				//类型错误设置空对象------------------>注意这个地方没有发送类型错误的响应处理
                 addReply(c,shared.nullbulk);
             } else {
+            	//字符串对象添加到响应结果中
                 addReplyBulk(c,o);
             }
         }
     }
 }
 
+/* 处理一次设置多个字符串对象的通用操作处理 */
 void msetGenericCommand(client *c, int nx) {
     int j;
 
+	//检测对应的参数个数是否有问题---->即需要成对出现
     if ((c->argc % 2) == 0) {
+		//返回对应的参数错误响应
         addReplyError(c,"wrong number of arguments for MSET");
         return;
     }
 
     /* Handle the NX flag. The MSETNX semantic is to return zero and don't set anything if at least one key alerady exists. */
-    if (nx) {
+	//检测是否设置了nx标识 即在对应的键不存在的情况下才进行插入操作处理
+	if (nx) {
+		//循环检测对应的键对象是否已经存在
         for (j = 1; j < c->argc; j += 2) {
+			//检测键对象对应的值对象是否存在
             if (lookupKeyWrite(c->db,c->argv[j]) != NULL) {
+				//键值对已经存在，直接向客户端返回设置失败的标识响应
                 addReply(c, shared.czero);
                 return;
             }
         }
     }
 
+	//循环进行设置新键值对的操作处理
     for (j = 1; j < c->argc; j += 2) {
+		//尝试进行优化编码操作处理
         c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
+		//设置对应的新的键值对空间值
         setKey(c->db,c->argv[j],c->argv[j+1]);
+		//发送触发对应命令的通知
         notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
     }
+	//增加脏数据计数
     server.dirty += (c->argc-1)/2;
+	//向客户端发送对应的响应结果
     addReply(c, nx ? shared.cone : shared.ok);
 }
 
+/* 
+ * 用于同时设置一个或多个 key-value 对
+ * 命令格式
+ *     MSET key1 value1 key2 value2 .. keyN valueN
+ * 返回值
+ *     总是返回 OK
+ */
 void msetCommand(client *c) {
     msetGenericCommand(c,0);
 }
 
+/* 
+ * 用于所有给定 key 都不存在时，同时设置一个或多个 key-value 对
+ * 命令格式
+ *     MSETNX key1 value1 key2 value2 .. keyN valueN
+ * 返回值
+ *     当所有 key 都成功设置，返回 1 。 如果所有给定 key 都设置失败(至少有一个 key 已经存在)则不进行设置操作，同时返回 0
+ */
 void msetnxCommand(client *c) {
     msetGenericCommand(c,1);
 }
 
+/* 通用的进行对字符串对象值进行增减操作 */
 void incrDecrCommand(client *c, long long incr) {
     long long value, oldvalue;
     robj *o, *new;
-
+	
+	//获取对应键所对应的值对象
     o = lookupKeyWrite(c->db,c->argv[1]);
-    if (o != NULL && checkType(c,o,OBJ_STRING)) return;
-    if (getLongLongFromObjectOrReply(c,o,&value,NULL) != C_OK) return;
-
+	
+	//检测对应的值对象是否存在,且是否是字符串类型对象
+    if (o != NULL && checkType(c,o,OBJ_STRING)) 
+		return;
+	
+	//获取值对象所对应的整数值
+    if (getLongLongFromObjectOrReply(c,o,&value,NULL) != C_OK) 
+		return;
+	
+	//用于记录老值
     oldvalue = value;
+	//检测增量后范围是否越界
     if ((incr < 0 && oldvalue < 0 && incr < (LLONG_MIN-oldvalue)) || (incr > 0 && oldvalue > 0 && incr > (LLONG_MAX-oldvalue))) {
-        addReplyError(c,"increment or decrement would overflow");
+		//返回越界错误
+		addReplyError(c,"increment or decrement would overflow");
         return;
     }
+	//增加增量值
     value += incr;
 
+	//检测对应的整数字符串对象是否是共享类型
     if (o && o->refcount == 1 && o->encoding == OBJ_ENCODING_INT && (value < 0 || value >= OBJ_SHARED_INTEGERS) && value >= LONG_MIN && value <= LONG_MAX) {
-        new = o;
+		//直接记录对应的非共享整数字符串对象
+		new = o;
+		//设置对应的增量后的整数值
         o->ptr = (void*)((long)value);
     } else {
+		//共享对象此处需要创建对应的整数字符串对象
         new = createStringObjectFromLongLongForValue(value);
+		//检测对应的对象是否存在
         if (o) {
+			//进行复写操作处理
             dbOverwrite(c->db,c->argv[1],new);
         } else {
+        	//进行添加操作处理
             dbAdd(c->db,c->argv[1],new);
         }
     }
+	//发送键值对空间变化信号
     signalModifiedKey(c->db,c->argv[1]);
+	//发送触发对应命令的通知
     notifyKeyspaceEvent(NOTIFY_STRING,"incrby",c->argv[1],c->db->id);
+	//脏数据计数增加
     server.dirty++;
+	//设置需要返回客户端的响应信息-------------->注意下面是分别配置传输的协议参数
     addReply(c,shared.colon);
     addReply(c,new);
     addReply(c,shared.crlf);
 }
 
 
+/*
+ * 将 key 中储存的数字值增一
+ *      如果 key 不存在，那么 key 的值会先被初始化为 0 ，然后再执行 INCR 操作
+ *      如果值包含错误的类型，或字符串类型的值不能表示为数字，那么返回一个错误
+ *      本操作的值限制在 64 位(bit)有符号数字表示之内
+ * 命令格式
+ *     INCR KEY_NAME
+ * 返回值
+ *     执行命令之后 key 的值
+ */
 void incrCommand(client *c) {
     incrDecrCommand(c,1);
 }
 
+/*
+ * 将 key 中储存的数字值减一
+ *      如果 key 不存在，那么 key 的值会先被初始化为 0 ，然后再执行 INCR 操作
+ *      如果值包含错误的类型，或字符串类型的值不能表示为数字，那么返回一个错误
+ *      本操作的值限制在 64 位(bit)有符号数字表示之内
+ * 命令格式
+ *     DECR KEY_NAME
+ * 返回值
+ *     执行命令之后 key 的值
+ */
 void decrCommand(client *c) {
     incrDecrCommand(c,-1);
 }
 
+/*
+ * 将 key 中储存的数字加上指定的增量值
+ *      如果 key 不存在，那么 key 的值会先被初始化为 0 ，然后再执行 INCR 操作
+ *      如果值包含错误的类型，或字符串类型的值不能表示为数字，那么返回一个错误
+ *      本操作的值限制在 64 位(bit)有符号数字表示之内
+ * 命令格式
+ *     INCRBYFLOAT KEY_NAME INCR_AMOUNT
+ * 返回值
+ *     加上指定的增量值之后， key 的值
+ */
 void incrbyCommand(client *c) {
     long long incr;
-
+	
+	//获取对应的增量值
     if (getLongLongFromObjectOrReply(c, c->argv[2], &incr, NULL) != C_OK) 
 		return;
+	//触发对应的增加增量值的处理
     incrDecrCommand(c,incr);
 }
 
+/*
+ * 将 key 所储存的值减去指定的减量值
+ *      如果 key 不存在，那么 key 的值会先被初始化为 0 ，然后再执行 INCR 操作
+ *      如果值包含错误的类型，或字符串类型的值不能表示为数字，那么返回一个错误
+ *      本操作的值限制在 64 位(bit)有符号数字表示之内
+ * 命令格式
+ *     DECRBY KEY_NAME DECREMENT_AMOUNT
+ * 返回值
+ *     减去指定减量值之后，key的值
+ */
 void decrbyCommand(client *c) {
     long long incr;
-
+	
+	//获取对应的增量值
     if (getLongLongFromObjectOrReply(c, c->argv[2], &incr, NULL) != C_OK) 
 		return;
+	//触发对应的减少增量值的处理
     incrDecrCommand(c,-incr);
 }
 
+/*
+ * 为 key 中所储存的值加上指定的浮点数增量值
+ *        如果 key 不存在，那么 INCRBYFLOAT 会先将 key 的值设为 0 ，再执行加法操作
+ * 命令格式
+ *     INCRBYFLOAT KEY_NAME INCR_AMOUNT
+ * 返回值
+ *     执行命令之后 key 的值
+ */
 void incrbyfloatCommand(client *c) {
     long double incr, value;
     robj *o, *new, *aux;
-
+	
+	//获取键所对应的值对象
     o = lookupKeyWrite(c->db,c->argv[1]);
-    if (o != NULL && checkType(c,o,OBJ_STRING)) return;
+	//检测值对象是否存在,且是否是字符串类型对象
+    if (o != NULL && checkType(c,o,OBJ_STRING)) 
+		return;
+	
+	//获取对应的值对象中是否记录的是数值类型,同时获取设置的对应增量值
     if (getLongDoubleFromObjectOrReply(c,o,&value,NULL) != C_OK || getLongDoubleFromObjectOrReply(c,c->argv[2],&incr,NULL) != C_OK)
         return;
-
+	
+	//计算增量后的值
     value += incr;
+	//检测增量后的值是否越界
     if (isnan(value) || isinf(value)) {
+		//返回对应的数据越界错误响应
         addReplyError(c,"increment would produce NaN or Infinity");
         return;
     }
+	//创建对应的新的对象
     new = createStringObjectFromLongDouble(value,1);
+	//根据对应的值对象是否存在来进行处理
     if (o)
+		//进行复写操作处理
         dbOverwrite(c->db,c->argv[1],new);
     else
+		//将对应的键值对添加到空间中
         dbAdd(c->db,c->argv[1],new);
+	//发送键值对空间变化信号
     signalModifiedKey(c->db,c->argv[1]);
+	//发送触发对应命令通知
     notifyKeyspaceEvent(NOTIFY_STRING,"incrbyfloat",c->argv[1],c->db->id);
+	//增加脏数据计数
     server.dirty++;
+	//向客户端返回增量后的新数据
     addReplyBulk(c,new);
 
-    /* Always replicate INCRBYFLOAT as a SET command with the final value
-     * in order to make sure that differences in float precision or formatting
-     * will not create differences in replicas or after an AOF restart. */
+    /* Always replicate INCRBYFLOAT as a SET command with the final value in order to make sure that differences in float precision or formatting will not create differences in replicas or after an AOF restart. */
     aux = createStringObject("SET",3);
     rewriteClientCommandArgument(c,0,aux);
     decrRefCount(aux);
     rewriteClientCommandArgument(c,2,new);
 }
 
+/*
+ * 用于为指定的 key 追加值
+ *     如果 key 已经存在并且是一个字符串， APPEND 命令将 value 追加到 key 原来的值的末尾
+ *     如果 key 不存在， APPEND 就简单地将给定 key 设为 value ，就像执行 SET key value 一样
+ * 命令格式
+ *     APPEND KEY_NAME NEW_VALUE
+ * 返回值
+ *     追加指定值之后， key 中字符串的长度
+ */
 void appendCommand(client *c) {
     size_t totlen;
     robj *o, *append;
-
+	
+	//根据给定的键获取对应的值对象
     o = lookupKeyWrite(c->db,c->argv[1]);
+	//检测对应的值对象是否存在
     if (o == NULL) {
         /* Create the key */
+		//对给定的字符串对象进行优化编码操作处理 从这个地方可以发现 在网络断设置参数字符串对象时 用的是纯字符串形式的
         c->argv[2] = tryObjectEncoding(c->argv[2]);
+		//将对应的键值对添加到redis数据库字典中
         dbAdd(c->db,c->argv[1],c->argv[2]);
+		//增加值对象的引用计数值
         incrRefCount(c->argv[2]);
+		//获取当前字符串对象的长度值
         totlen = stringObjectLen(c->argv[2]);
     } else {
         /* Key exists, check type */
+	 	//检测值对象的类型是否是字符串类型
         if (checkType(c,o,OBJ_STRING))
             return;
 
         /* "append" is an argument, so always an sds */
+		//获取需要追加的字符串对象
         append = c->argv[2];
+		//获取追加后总的字符串的长度
         totlen = stringObjectLen(o)+sdslen(append->ptr);
+		//检测字符串长度是否越界
         if (checkStringLength(c,totlen) != C_OK)
             return;
 
         /* Append the value */
+		//获取对应的非共享类型对象
         o = dbUnshareStringValue(c->db,c->argv[1],o);
+		//设置对应的内容指向
         o->ptr = sdscatlen(o->ptr,append->ptr,sdslen(append->ptr));
+		//获取对应的长度值
         totlen = sdslen(o->ptr);
     }
+	//发送键值对空间变化的信号
     signalModifiedKey(c->db,c->argv[1]);
+	//发送触发对应命令的通知
     notifyKeyspaceEvent(NOTIFY_STRING,"append",c->argv[1],c->db->id);
+	//增加脏数据计数
     server.dirty++;
+	//向客户端返回对应的长度值
     addReplyLongLong(c,totlen);
 }
 

@@ -3059,8 +3059,8 @@ void zrankGenericCommand(client *c, int reverse) {
     robj *zobj;
     long rank;
 
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.nullbulk)) == NULL ||
-        checkType(c,zobj,OBJ_ZSET)) return;
+    if ((zobj = lookupKeyReadOrReply(c,key,shared.nullbulk)) == NULL || checkType(c,zobj,OBJ_ZSET)) 
+		return;
 
     serverAssertWithInfo(c,ele,sdsEncodedObject(ele));
     rank = zsetRank(zobj,ele->ptr,reverse);
@@ -3084,8 +3084,8 @@ void zscanCommand(client *c) {
     unsigned long cursor;
 
     if (parseScanCursorOrReply(c,c->argv[2],&cursor) == C_ERR) return;
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
-        checkType(c,o,OBJ_ZSET)) return;
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL || checkType(c,o,OBJ_ZSET)) 
+		return;
     scanGenericCommand(c,o,cursor);
 }
 
@@ -3122,7 +3122,8 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         key = keyv[idx++];
         zobj = lookupKeyWrite(c->db,key);
         if (!zobj) continue;
-        if (checkType(c,zobj,OBJ_ZSET)) return;
+        if (checkType(c,zobj,OBJ_ZSET)) 
+			return;
         break;
     }
 
@@ -3166,8 +3167,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
             zskiplistNode *zln;
 
             /* Get the first or last element in the sorted set. */
-            zln = (where == ZSET_MAX ? zsl->tail :
-                                       zsl->header->level[0].forward);
+            zln = (where == ZSET_MAX ? zsl->tail : zsl->header->level[0].forward);
 
             /* There must be an element in the sorted set. */
             serverAssertWithInfo(c,zobj,zln != NULL);
@@ -3208,8 +3208,7 @@ void zpopminCommand(client *c) {
         addReply(c,shared.syntaxerr);
         return;
     }
-    genericZpopCommand(c,&c->argv[1],1,ZSET_MIN,0,
-        c->argc == 3 ? c->argv[2] : NULL);
+    genericZpopCommand(c,&c->argv[1],1,ZSET_MIN,0, c->argc == 3 ? c->argv[2] : NULL);
 }
 
 /* ZMAXPOP key [<count>] */
@@ -3218,8 +3217,7 @@ void zpopmaxCommand(client *c) {
         addReply(c,shared.syntaxerr);
         return;
     }
-    genericZpopCommand(c,&c->argv[1],1,ZSET_MAX,0,
-        c->argc == 3 ? c->argv[2] : NULL);
+    genericZpopCommand(c,&c->argv[1],1,ZSET_MAX,0, c->argc == 3 ? c->argv[2] : NULL);
 }
 
 /* BZPOPMIN / BZPOPMAX actual implementation. */

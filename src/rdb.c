@@ -1,30 +1,7 @@
 /*
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * redis中rdb备份的实现方式
+ * rdb文件可以用于服务启动时加载的磁盘数据 或者 检测给定路径或者文件所对应的rdb文件是否完整
+ * 相关介绍文档 https://blog.csdn.net/u012422440/article/details/94592513
  */
 
 #include "server.h"
@@ -53,8 +30,7 @@ void rdbCheckThenExit(int linenum, char *reason, ...) {
     char msg[1024];
     int len;
 
-    len = snprintf(msg,sizeof(msg),
-        "Internal error in RDB reading function at rdb.c:%d -> ", linenum);
+    len = snprintf(msg,sizeof(msg), "Internal error in RDB reading function at rdb.c:%d -> ", linenum);
     va_start(ap,reason);
     vsnprintf(msg+len,sizeof(msg)-len,reason,ap);
     va_end(ap);
@@ -69,34 +45,41 @@ void rdbCheckThenExit(int linenum, char *reason, ...) {
     exit(1);
 }
 
+/* 将对应字节数量的字符串数据通过rio结构写入到文件中 */
 static int rdbWriteRaw(rio *rdb, void *p, size_t len) {
+	//触发写入操作处理,并检测写入是否成功
     if (rdb && rioWrite(rdb,p,len) == 0)
         return -1;
+	//返回写入的字节数量
     return len;
 }
 
-/* This is just a wrapper for the low level function rioRead() that will
- * automatically abort if it is not possible to read the specified amount
- * of bytes. */
+/* This is just a wrapper for the low level function rioRead() that will automatically abort if it is not possible to read the specified amount of bytes. */
+/* */
 void rdbLoadRaw(rio *rdb, void *buf, uint64_t len) {
     if (rioRead(rdb,buf,len) == 0) {
-        rdbExitReportCorruptRDB(
-            "Impossible to read %llu bytes in rdbLoadRaw()",
-            (unsigned long long) len);
+        rdbExitReportCorruptRDB("Impossible to read %llu bytes in rdbLoadRaw()",(unsigned long long) len);
         return; /* Not reached. */
     }
 }
 
+/* 向rio中写入类型标识数据 */
 int rdbSaveType(rio *rdb, unsigned char type) {
+	//写入一个字节的类型标识数据
     return rdbWriteRaw(rdb,&type,1);
 }
 
 /* Load a "type" in RDB format, that is a one byte unsigned integer.
  * This function is not only used to load object types, but also special
  * "types" like the end-of-file type, the EXPIRE type, and so forth. */
+/*在rio中读取一个字节大小的类型标识数据 */
 int rdbLoadType(rio *rdb) {
     unsigned char type;
-    if (rioRead(rdb,&type,1) == 0) return -1;
+	//尝试读取一个字节的类型标识
+    if (rioRead(rdb,&type,1) == 0) 
+		//返回读取失败的标识
+		return -1;
+	//返回读取到的数据类型标识
     return type;
 }
 
@@ -124,8 +107,7 @@ int rdbSaveMillisecondTime(rio *rdb, long long t) {
  * this call will introduce an incompatibility for big endian systems:
  * after upgrading to Redis version 5 they will no longer be able to load their
  * own old RDB files. Because of that, we instead fix the function only for new
- * RDB versions, and load older RDB versions as we used to do in the past,
- * allowing big endian systems to load their own old RDB files. */
+ * RDB versions, and load older RDB versions as we used to do in the past, allowing big endian systems to load their own old RDB files. */
 long long rdbLoadMillisecondTime(rio *rdb, int rdbver) {
     int64_t t64;
     rdbLoadRaw(rdb,&t64,8);
@@ -135,8 +117,7 @@ long long rdbLoadMillisecondTime(rio *rdb, int rdbver) {
 }
 
 /* Saves an encoded length. The first two bits in the first byte are used to
- * hold the encoding type. See the RDB_* definitions for more information
- * on the types of encoding. */
+ * hold the encoding type. See the RDB_* definitions for more information on the types of encoding. */
 int rdbSaveLen(rio *rdb, uint64_t len) {
     unsigned char buf[2];
     size_t nwritten;
@@ -144,27 +125,33 @@ int rdbSaveLen(rio *rdb, uint64_t len) {
     if (len < (1<<6)) {
         /* Save a 6 bit len */
         buf[0] = (len&0xFF)|(RDB_6BITLEN<<6);
-        if (rdbWriteRaw(rdb,buf,1) == -1) return -1;
+        if (rdbWriteRaw(rdb,buf,1) == -1) 
+			return -1;
         nwritten = 1;
     } else if (len < (1<<14)) {
         /* Save a 14 bit len */
         buf[0] = ((len>>8)&0xFF)|(RDB_14BITLEN<<6);
         buf[1] = len&0xFF;
-        if (rdbWriteRaw(rdb,buf,2) == -1) return -1;
+        if (rdbWriteRaw(rdb,buf,2) == -1) 
+			return -1;
         nwritten = 2;
     } else if (len <= UINT32_MAX) {
         /* Save a 32 bit len */
         buf[0] = RDB_32BITLEN;
-        if (rdbWriteRaw(rdb,buf,1) == -1) return -1;
+        if (rdbWriteRaw(rdb,buf,1) == -1) 
+			return -1;
         uint32_t len32 = htonl(len);
-        if (rdbWriteRaw(rdb,&len32,4) == -1) return -1;
+        if (rdbWriteRaw(rdb,&len32,4) == -1) 
+			return -1;
         nwritten = 1+4;
     } else {
         /* Save a 64 bit len */
         buf[0] = RDB_64BITLEN;
-        if (rdbWriteRaw(rdb,buf,1) == -1) return -1;
+        if (rdbWriteRaw(rdb,buf,1) == -1) 
+			return -1;
         len = htonu64(len);
-        if (rdbWriteRaw(rdb,&len,8) == -1) return -1;
+        if (rdbWriteRaw(rdb,&len,8) == -1)
+			return -1;
         nwritten = 1+8;
     }
     return nwritten;
@@ -176,41 +163,43 @@ int rdbSaveLen(rio *rdb, uint64_t len) {
  * loaded length describes a special encoding that follows, then '*isencoded'
  * is set to 1 and the encoding format is stored at '*lenptr'.
  *
- * See the RDB_ENC_* definitions in rdb.h for more information on special
- * encodings.
- *
+ * See the RDB_ENC_* definitions in rdb.h for more information on specialencodings.
  * The function returns -1 on error, 0 on success. */
 int rdbLoadLenByRef(rio *rdb, int *isencoded, uint64_t *lenptr) {
     unsigned char buf[2];
     int type;
 
     if (isencoded) *isencoded = 0;
-    if (rioRead(rdb,buf,1) == 0) return -1;
+    if (rioRead(rdb,buf,1) == 0) 
+		return -1;
     type = (buf[0]&0xC0)>>6;
     if (type == RDB_ENCVAL) {
         /* Read a 6 bit encoding type. */
-        if (isencoded) *isencoded = 1;
+        if (isencoded) 
+			*isencoded = 1;
         *lenptr = buf[0]&0x3F;
     } else if (type == RDB_6BITLEN) {
         /* Read a 6 bit len. */
         *lenptr = buf[0]&0x3F;
     } else if (type == RDB_14BITLEN) {
         /* Read a 14 bit len. */
-        if (rioRead(rdb,buf+1,1) == 0) return -1;
+        if (rioRead(rdb,buf+1,1) == 0) 
+			return -1;
         *lenptr = ((buf[0]&0x3F)<<8)|buf[1];
     } else if (buf[0] == RDB_32BITLEN) {
         /* Read a 32 bit len. */
         uint32_t len;
-        if (rioRead(rdb,&len,4) == 0) return -1;
+        if (rioRead(rdb,&len,4) == 0) 
+			return -1;
         *lenptr = ntohl(len);
     } else if (buf[0] == RDB_64BITLEN) {
         /* Read a 64 bit len. */
         uint64_t len;
-        if (rioRead(rdb,&len,8) == 0) return -1;
+        if (rioRead(rdb,&len,8) == 0) 
+			return -1;
         *lenptr = ntohu64(len);
     } else {
-        rdbExitReportCorruptRDB(
-            "Unknown length encoding %d in rdbLoadLen()",type);
+        rdbExitReportCorruptRDB("Unknown length encoding %d in rdbLoadLen()",type);
         return -1; /* Never reached. */
     }
     return 0;
@@ -218,12 +207,11 @@ int rdbLoadLenByRef(rio *rdb, int *isencoded, uint64_t *lenptr) {
 
 /* This is like rdbLoadLenByRef() but directly returns the value read
  * from the RDB stream, signaling an error by returning RDB_LENERR
- * (since it is a too large count to be applicable in any Redis data
- * structure). */
+ * (since it is a too large count to be applicable in any Redis data structure). */
 uint64_t rdbLoadLen(rio *rdb, int *isencoded) {
     uint64_t len;
-
-    if (rdbLoadLenByRef(rdb,isencoded,&len) == -1) return RDB_LENERR;
+    if (rdbLoadLenByRef(rdb,isencoded,&len) == -1) 
+		return RDB_LENERR;
     return len;
 }
 
@@ -254,8 +242,7 @@ int rdbEncodeInteger(long long value, unsigned char *enc) {
 }
 
 /* Loads an integer-encoded object with the specified encoding type "enctype".
- * The returned value changes according to the flags, see
- * rdbGenerincLoadStringObject() for more info. */
+ * The returned value changes according to the flags, see rdbGenerincLoadStringObject() for more info. */
 void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
     int plain = flags & RDB_LOAD_PLAIN;
     int sds = flags & RDB_LOAD_SDS;
@@ -264,16 +251,19 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
     long long val;
 
     if (enctype == RDB_ENC_INT8) {
-        if (rioRead(rdb,enc,1) == 0) return NULL;
+        if (rioRead(rdb,enc,1) == 0) 
+			return NULL;
         val = (signed char)enc[0];
     } else if (enctype == RDB_ENC_INT16) {
         uint16_t v;
-        if (rioRead(rdb,enc,2) == 0) return NULL;
+        if (rioRead(rdb,enc,2) == 0) 
+			return NULL;
         v = enc[0]|(enc[1]<<8);
         val = (int16_t)v;
     } else if (enctype == RDB_ENC_INT32) {
         uint32_t v;
-        if (rioRead(rdb,enc,4) == 0) return NULL;
+        if (rioRead(rdb,enc,4) == 0) 
+			return NULL;
         v = enc[0]|(enc[1]<<8)|(enc[2]<<16)|(enc[3]<<24);
         val = (int32_t)v;
     } else {
@@ -295,41 +285,44 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
 }
 
 /* String objects in the form "2391" "-100" without any space and with a
- * range of values that can fit in an 8, 16 or 32 bit signed value can be
- * encoded as integers to save space */
+ * range of values that can fit in an 8, 16 or 32 bit signed value can be encoded as integers to save space */
 int rdbTryIntegerEncoding(char *s, size_t len, unsigned char *enc) {
     long long value;
     char *endptr, buf[32];
 
     /* Check if it's possible to encode this value as a number */
     value = strtoll(s, &endptr, 10);
-    if (endptr[0] != '\0') return 0;
+    if (endptr[0] != '\0') 
+		return 0;
     ll2string(buf,32,value);
 
-    /* If the number converted back into a string is not identical
-     * then it's not possible to encode the string as integer */
-    if (strlen(buf) != len || memcmp(buf,s,len)) return 0;
+    /* If the number converted back into a string is not identical then it's not possible to encode the string as integer */
+    if (strlen(buf) != len || memcmp(buf,s,len)) 
+		return 0;
 
     return rdbEncodeInteger(value,enc);
 }
 
-ssize_t rdbSaveLzfBlob(rio *rdb, void *data, size_t compress_len,
-                       size_t original_len) {
+ssize_t rdbSaveLzfBlob(rio *rdb, void *data, size_t compress_len, size_t original_len) {
     unsigned char byte;
     ssize_t n, nwritten = 0;
 
     /* Data compressed! Let's save it on disk */
     byte = (RDB_ENCVAL<<6)|RDB_ENC_LZF;
-    if ((n = rdbWriteRaw(rdb,&byte,1)) == -1) goto writeerr;
+    if ((n = rdbWriteRaw(rdb,&byte,1)) == -1) 
+		goto writeerr;
     nwritten += n;
 
-    if ((n = rdbSaveLen(rdb,compress_len)) == -1) goto writeerr;
+    if ((n = rdbSaveLen(rdb,compress_len)) == -1) 
+		goto writeerr;
     nwritten += n;
 
-    if ((n = rdbSaveLen(rdb,original_len)) == -1) goto writeerr;
+    if ((n = rdbSaveLen(rdb,original_len)) == -1) 
+		goto writeerr;
     nwritten += n;
 
-    if ((n = rdbWriteRaw(rdb,data,compress_len)) == -1) goto writeerr;
+    if ((n = rdbWriteRaw(rdb,data,compress_len)) == -1) 
+		goto writeerr;
     nwritten += n;
 
     return nwritten;
@@ -345,7 +338,8 @@ ssize_t rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
     /* We require at least four bytes compression for this to be worth it */
     if (len <= 4) return 0;
     outlen = len-4;
-    if ((out = zmalloc(outlen+1)) == NULL) return 0;
+    if ((out = zmalloc(outlen+1)) == NULL) 
+		return 0;
     comprlen = lzf_compress(s, len, out, outlen);
     if (comprlen == 0) {
         zfree(out);
@@ -366,9 +360,12 @@ void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
     unsigned char *c = NULL;
     char *val = NULL;
 
-    if ((clen = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
-    if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
-    if ((c = zmalloc(clen)) == NULL) goto err;
+    if ((clen = rdbLoadLen(rdb,NULL)) == RDB_LENERR) 
+		return NULL;
+    if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) 
+		return NULL;
+    if ((c = zmalloc(clen)) == NULL) 
+		goto err;
 
     /* Allocate our target according to the uncompressed size. */
     if (plain) {
@@ -379,7 +376,8 @@ void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
     if (lenptr) *lenptr = len;
 
     /* Load the compressed representation and uncompress it to target. */
-    if (rioRead(rdb,c,clen) == 0) goto err;
+    if (rioRead(rdb,c,clen) == 0) 
+		goto err;
     if (lzf_decompress(c,clen,val,len) == 0) {
         if (rdbCheckMode) rdbCheckSetError("Invalid LZF compressed string");
         goto err;
@@ -400,8 +398,7 @@ err:
     return NULL;
 }
 
-/* Save a string object as [len][data] on disk. If the object is a string
- * representation of an integer value we try to save it in a special form */
+/* Save a string object as [len][data] on disk. If the object is a string representation of an integer value we try to save it in a special form */
 ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len) {
     int enclen;
     ssize_t n, nwritten = 0;
@@ -410,7 +407,8 @@ ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len) {
     if (len <= 11) {
         unsigned char buf[5];
         if ((enclen = rdbTryIntegerEncoding((char*)s,len,buf)) > 0) {
-            if (rdbWriteRaw(rdb,buf,enclen) == -1) return -1;
+            if (rdbWriteRaw(rdb,buf,enclen) == -1) 
+				return -1;
             return enclen;
         }
     }
@@ -425,10 +423,12 @@ ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len) {
     }
 
     /* Store verbatim */
-    if ((n = rdbSaveLen(rdb,len)) == -1) return -1;
+    if ((n = rdbSaveLen(rdb,len)) == -1) 
+		return -1;
     nwritten += n;
     if (len > 0) {
-        if (rdbWriteRaw(rdb,s,len) == -1) return -1;
+        if (rdbWriteRaw(rdb,s,len) == -1) 
+			return -1;
         nwritten += len;
     }
     return nwritten;
@@ -445,9 +445,11 @@ ssize_t rdbSaveLongLongAsStringObject(rio *rdb, long long value) {
         /* Encode as string */
         enclen = ll2string((char*)buf,32,value);
         serverAssert(enclen < 32);
-        if ((n = rdbSaveLen(rdb,enclen)) == -1) return -1;
+        if ((n = rdbSaveLen(rdb,enclen)) == -1) 
+			return -1;
         nwritten += n;
-        if ((n = rdbWriteRaw(rdb,buf,enclen)) == -1) return -1;
+        if ((n = rdbWriteRaw(rdb,buf,enclen)) == -1) 
+			return -1;
         nwritten += n;
     }
     return nwritten;
@@ -499,7 +501,8 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
         }
     }
 
-    if (len == RDB_LENERR) return NULL;
+    if (len == RDB_LENERR) 
+		return NULL;
     if (plain || sds) {
         void *buf = plain ? zmalloc(len) : sdsnewlen(SDS_NOINIT,len);
         if (lenptr) *lenptr = len;
@@ -512,8 +515,7 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
         }
         return buf;
     } else {
-        robj *o = encode ? createStringObject(SDS_NOINIT,len) :
-                           createRawStringObject(SDS_NOINIT,len);
+        robj *o = encode ? createStringObject(SDS_NOINIT,len) : createRawStringObject(SDS_NOINIT,len);
         if (len && rioRead(rdb,o->ptr,len) == 0) {
             decrRefCount(o);
             return NULL;
@@ -577,13 +579,21 @@ int rdbLoadDoubleValue(rio *rdb, double *val) {
     char buf[256];
     unsigned char len;
 
-    if (rioRead(rdb,&len,1) == 0) return -1;
+    if (rioRead(rdb,&len,1) == 0) 
+		return -1;
     switch(len) {
-    case 255: *val = R_NegInf; return 0;
-    case 254: *val = R_PosInf; return 0;
-    case 253: *val = R_Nan; return 0;
+    case 255: 
+		*val = R_NegInf; 
+		return 0;
+    case 254: 
+		*val = R_PosInf; 
+		return 0;
+    case 253: 
+		*val = R_Nan; 
+		return 0;
     default:
-        if (rioRead(rdb,buf,len) == 0) return -1;
+        if (rioRead(rdb,buf,len) == 0) 
+			return -1;
         buf[len] = '\0';
         sscanf(buf, "%lg", val);
         return 0;
@@ -603,7 +613,8 @@ int rdbSaveBinaryDoubleValue(rio *rdb, double val) {
 /* Loads a double from RDB 8 or greater. See rdbSaveBinaryDoubleValue() for
  * more info. On error -1 is returned, otherwise 0. */
 int rdbLoadBinaryDoubleValue(rio *rdb, double *val) {
-    if (rioRead(rdb,val,sizeof(*val)) == 0) return -1;
+    if (rioRead(rdb,val,sizeof(*val)) == 0) 
+		return -1;
     memrev64ifbe(val);
     return 0;
 }
@@ -616,7 +627,8 @@ int rdbSaveBinaryFloatValue(rio *rdb, float val) {
 
 /* Like rdbLoadBinaryDoubleValue() but single precision. */
 int rdbLoadBinaryFloatValue(rio *rdb, float *val) {
-    if (rioRead(rdb,val,sizeof(*val)) == 0) return -1;
+    if (rioRead(rdb,val,sizeof(*val)) == 0) 
+		return -1;
     memrev32ifbe(val);
     return 0;
 }
@@ -666,8 +678,10 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
  * type is not specifically a valid Object Type. */
 int rdbLoadObjectType(rio *rdb) {
     int type;
-    if ((type = rdbLoadType(rdb)) == -1) return -1;
-    if (!rdbIsObjectType(type)) return -1;
+    if ((type = rdbLoadType(rdb)) == -1) 
+		return -1;
+    if (!rdbIsObjectType(type)) 
+		return -1;
     return type;
 }
 
@@ -676,13 +690,13 @@ int rdbLoadObjectType(rio *rdb) {
  * the informations about the not acknowledged message, or if to persist
  * just the IDs: this is useful because for the global consumer group PEL
  * we serialized the NACKs as well, but when serializing the local consumer
- * PELs we just add the ID, that will be resolved inside the global PEL to
- * put a reference to the same structure. */
+ * PELs we just add the ID, that will be resolved inside the global PEL to put a reference to the same structure. */
 ssize_t rdbSaveStreamPEL(rio *rdb, rax *pel, int nacks) {
     ssize_t n, nwritten = 0;
 
     /* Number of entries in the PEL. */
-    if ((n = rdbSaveLen(rdb,raxSize(pel))) == -1) return -1;
+    if ((n = rdbSaveLen(rdb,raxSize(pel))) == -1) 
+		return -1;
     nwritten += n;
 
     /* Save each entry. */
@@ -692,7 +706,8 @@ ssize_t rdbSaveStreamPEL(rio *rdb, rax *pel, int nacks) {
     while(raxNext(&ri)) {
         /* We store IDs in raw form as 128 big big endian numbers, like
          * they are inside the radix tree key. */
-        if ((n = rdbWriteRaw(rdb,ri.key,sizeof(streamID))) == -1) return -1;
+        if ((n = rdbWriteRaw(rdb,ri.key,sizeof(streamID))) == -1) 
+			return -1;
         nwritten += n;
 
         if (nacks) {
@@ -700,7 +715,8 @@ ssize_t rdbSaveStreamPEL(rio *rdb, rax *pel, int nacks) {
             if ((n = rdbSaveMillisecondTime(rdb,nack->delivery_time)) == -1)
                 return -1;
             nwritten += n;
-            if ((n = rdbSaveLen(rdb,nack->delivery_count)) == -1) return -1;
+            if ((n = rdbSaveLen(rdb,nack->delivery_count)) == -1) 
+				return -1;
             nwritten += n;
             /* We don't save the consumer name: we'll save the pending IDs
              * for each consumer in the consumer PEL, and resolve the consumer
@@ -718,7 +734,8 @@ size_t rdbSaveStreamConsumers(rio *rdb, streamCG *cg) {
     ssize_t n, nwritten = 0;
 
     /* Number of consumers in this consumer group. */
-    if ((n = rdbSaveLen(rdb,raxSize(cg->consumers))) == -1) return -1;
+    if ((n = rdbSaveLen(rdb,raxSize(cg->consumers))) == -1) 
+		return -1;
     nwritten += n;
 
     /* Save each consumer. */
@@ -729,7 +746,8 @@ size_t rdbSaveStreamConsumers(rio *rdb, streamCG *cg) {
         streamConsumer *consumer = ri.data;
 
         /* Consumer name. */
-        if ((n = rdbSaveRawString(rdb,ri.key,ri.key_len)) == -1) return -1;
+        if ((n = rdbSaveRawString(rdb,ri.key,ri.key_len)) == -1) 
+			return -1;
         nwritten += n;
 
         /* Last seen time. */
@@ -995,8 +1013,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
 
 /* Return the length the object will have on disk if saved with
  * the rdbSaveObject() function. Currently we use a trick to get
- * this length with very little changes to the code. In the future
- * we could switch to a faster solution. */
+ * this length with very little changes to the code. In the future we could switch to a faster solution. */
 size_t rdbSavedObjectLen(robj *o) {
     ssize_t len = rdbSaveObject(NULL,o,NULL);
     serverAssertWithInfo(NULL,o,len != -1);
@@ -1005,59 +1022,69 @@ size_t rdbSavedObjectLen(robj *o) {
 
 /* Save a key-value pair, with expire time, type, key, value.
  * On error -1 is returned.
- * On success if the key was actually saved 1 is returned, otherwise 0
- * is returned (the key was already expired). */
+ * On success if the key was actually saved 1 is returned, otherwise 0 is returned (the key was already expired). */
+/* */
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime) {
     int savelru = server.maxmemory_policy & MAXMEMORY_FLAG_LRU;
     int savelfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU;
 
     /* Save the expire time */
     if (expiretime != -1) {
-        if (rdbSaveType(rdb,RDB_OPCODE_EXPIRETIME_MS) == -1) return -1;
-        if (rdbSaveMillisecondTime(rdb,expiretime) == -1) return -1;
+        if (rdbSaveType(rdb,RDB_OPCODE_EXPIRETIME_MS) == -1) 
+			return -1;
+        if (rdbSaveMillisecondTime(rdb,expiretime) == -1) 
+			return -1;
     }
 
     /* Save the LRU info. */
     if (savelru) {
         uint64_t idletime = estimateObjectIdleTime(val);
         idletime /= 1000; /* Using seconds is enough and requires less space.*/
-        if (rdbSaveType(rdb,RDB_OPCODE_IDLE) == -1) return -1;
-        if (rdbSaveLen(rdb,idletime) == -1) return -1;
+        if (rdbSaveType(rdb,RDB_OPCODE_IDLE) == -1) 
+			return -1;
+        if (rdbSaveLen(rdb,idletime) == -1) 
+			return -1;
     }
 
     /* Save the LFU info. */
     if (savelfu) {
         uint8_t buf[1];
         buf[0] = LFUDecrAndReturn(val);
-        /* We can encode this in exactly two bytes: the opcode and an 8
-         * bit counter, since the frequency is logarithmic with a 0-255 range.
-         * Note that we do not store the halving time because to reset it
-         * a single time when loading does not affect the frequency much. */
-        if (rdbSaveType(rdb,RDB_OPCODE_FREQ) == -1) return -1;
-        if (rdbWriteRaw(rdb,buf,1) == -1) return -1;
+        /* We can encode this in exactly two bytes: the opcode and an 8 bit counter, since the frequency is logarithmic with a 0-255 range.
+         * Note that we do not store the halving time because to reset it a single time when loading does not affect the frequency much. */
+        if (rdbSaveType(rdb,RDB_OPCODE_FREQ) == -1) 
+			return -1;
+        if (rdbWriteRaw(rdb,buf,1) == -1) 
+			return -1;
     }
 
     /* Save type, key, value */
-    if (rdbSaveObjectType(rdb,val) == -1) return -1;
-    if (rdbSaveStringObject(rdb,key) == -1) return -1;
-    if (rdbSaveObject(rdb,val,key) == -1) return -1;
+    if (rdbSaveObjectType(rdb,val) == -1) 
+		return -1;
+    if (rdbSaveStringObject(rdb,key) == -1) 
+		return -1;
+    if (rdbSaveObject(rdb,val,key) == -1) 
+		return -1;
     return 1;
 }
 
 /* Save an AUX field. */
 ssize_t rdbSaveAuxField(rio *rdb, void *key, size_t keylen, void *val, size_t vallen) {
     ssize_t ret, len = 0;
-    if ((ret = rdbSaveType(rdb,RDB_OPCODE_AUX)) == -1) return -1;
+    if ((ret = rdbSaveType(rdb,RDB_OPCODE_AUX)) == -1) 
+		return -1;
     len += ret;
-    if ((ret = rdbSaveRawString(rdb,key,keylen)) == -1) return -1;
+    if ((ret = rdbSaveRawString(rdb,key,keylen)) == -1) 
+		return -1;
     len += ret;
-    if ((ret = rdbSaveRawString(rdb,val,vallen)) == -1) return -1;
+    if ((ret = rdbSaveRawString(rdb,val,vallen)) == -1) 
+		return -1;
     len += ret;
     return len;
 }
 
-/* Wrapper for rdbSaveAuxField() used when key/val length can be obtained
- * with strlen(). */
+/* Wrapper for rdbSaveAuxField() used when key/val length can be obtained with strlen(). */
+/* */
 ssize_t rdbSaveAuxFieldStrStr(rio *rdb, char *key, char *val) {
     return rdbSaveAuxField(rdb,key,strlen(key),val,strlen(val));
 }
@@ -1070,26 +1097,42 @@ ssize_t rdbSaveAuxFieldStrInt(rio *rdb, char *key, long long val) {
 }
 
 /* Save a few default AUX fields with information about the RDB generated. */
+/* 在rdb文件中写入额外辅助信息 ( aux ) 辅助信息中包含了 Redis 的版本，内存占用和复制库( repl-id )和偏移量( repl-offset )等*/
 int rdbSaveInfoAuxFields(rio *rdb, int flags, rdbSaveInfo *rsi) {
     int redis_bits = (sizeof(void*) == 8) ? 64 : 32;
     int aof_preamble = (flags & RDB_SAVE_AOF_PREAMBLE) != 0;
 
     /* Add a few fields about the state when the RDB was created. */
-    if (rdbSaveAuxFieldStrStr(rdb,"redis-ver",REDIS_VERSION) == -1) return -1;
-    if (rdbSaveAuxFieldStrInt(rdb,"redis-bits",redis_bits) == -1) return -1;
-    if (rdbSaveAuxFieldStrInt(rdb,"ctime",time(NULL)) == -1) return -1;
-    if (rdbSaveAuxFieldStrInt(rdb,"used-mem",zmalloc_used_memory()) == -1) return -1;
+	//写入redis的版本值信息
+    if (rdbSaveAuxFieldStrStr(rdb,"redis-ver",REDIS_VERSION) == -1) 
+		return -1;
+	//写入当前系统对应的void* 占据的字节数量
+    if (rdbSaveAuxFieldStrInt(rdb,"redis-bits",redis_bits) == -1) 
+		return -1;
+	//写入当前的时间值
+    if (rdbSaveAuxFieldStrInt(rdb,"ctime",time(NULL)) == -1) 
+		return -1;
+	//写入当前使用的内存值
+    if (rdbSaveAuxFieldStrInt(rdb,"used-mem",zmalloc_used_memory()) == -1) 
+		return -1;
 
     /* Handle saving options that generate aux fields. */
     if (rsi) {
-        if (rdbSaveAuxFieldStrInt(rdb,"repl-stream-db",rsi->repl_stream_db)
-            == -1) return -1;
-        if (rdbSaveAuxFieldStrStr(rdb,"repl-id",server.replid)
-            == -1) return -1;
-        if (rdbSaveAuxFieldStrInt(rdb,"repl-offset",server.master_repl_offset)
-            == -1) return -1;
+		//
+        if (rdbSaveAuxFieldStrInt(rdb,"repl-stream-db",rsi->repl_stream_db) == -1) 
+			return -1;
+		//
+        if (rdbSaveAuxFieldStrStr(rdb,"repl-id",server.replid) == -1) 
+			return -1;
+		//
+        if (rdbSaveAuxFieldStrInt(rdb,"repl-offset",server.master_repl_offset) == -1) 
+			return -1;
     }
-    if (rdbSaveAuxFieldStrInt(rdb,"aof-preamble",aof_preamble) == -1) return -1;
+	//
+    if (rdbSaveAuxFieldStrInt(rdb,"aof-preamble",aof_preamble) == -1) 
+		return -1;
+	
+	//写入相关数据之后,返回写入成功标识
     return 1;
 }
 
@@ -1132,14 +1175,11 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
     return io.bytes;
 }
 
-/* Produces a dump of the database in RDB format sending it to the specified
- * Redis I/O channel. On success C_OK is returned, otherwise C_ERR
- * is returned and part of the output, or all the output, can be
- * missing because of I/O errors.
+/* Produces a dump of the database in RDB format sending it to the specified Redis I/O channel. On success C_OK is returned, otherwise C_ERR
+ * is returned and part of the output, or all the output, can be missing because of I/O errors.
  *
- * When the function returns C_ERR and if 'error' is not NULL, the
- * integer pointed by 'error' is set to the value of errno just after the I/O
- * error. */
+ * When the function returns C_ERR and if 'error' is not NULL, the integer pointed by 'error' is set to the value of errno just after the I/O error. */
+/* */
 int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
     dictIterator *di = NULL;
     dictEntry *de;
@@ -1148,62 +1188,99 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
     uint64_t cksum;
     size_t processed = 0;
 
+	//检测是否开启了校验和选项
     if (server.rdb_checksum)
+		//设置校验和的函数
         rdb->update_cksum = rioGenericUpdateChecksum;
+	//将Redis版本信息保存到magic中
     snprintf(magic,sizeof(magic),"REDIS%04d",RDB_VERSION);
-    if (rdbWriteRaw(rdb,magic,9) == -1) goto werr;
-    if (rdbSaveInfoAuxFields(rdb,flags,rsi) == -1) goto werr;
-    if (rdbSaveModulesAux(rdb, REDISMODULE_AUX_BEFORE_RDB) == -1) goto werr;
 
+	//在rdb文件中先写入 REDIS 魔法值，然后是 RDB 文件的版本( rdb_version )
+    if (rdbWriteRaw(rdb,magic,9) == -1) 
+		goto werr;
+
+	//再次写入额外辅助信息 ( aux ) 辅助信息中包含了 Redis 的版本，内存占用和复制库( repl-id )和偏移量( repl-offset )等
+    if (rdbSaveInfoAuxFields(rdb,flags,rsi) == -1) 
+		goto werr;
+	
+    if (rdbSaveModulesAux(rdb, REDISMODULE_AUX_BEFORE_RDB) == -1) 
+		goto werr;
+	
+	//遍历redis中所有库中的数据,进行数据备份操作处理
     for (j = 0; j < server.dbnum; j++) {
+		//获取当前索引对应的库
         redisDb *db = server.db+j;
+		//获取当前库对应的数据集
         dict *d = db->dict;
-        if (dictSize(d) == 0) continue;
+		//检测当前库中是否有数据需要存储处理
+        if (dictSize(d) == 0) 
+			continue;
+		//获取对应的安全迭代器对象
         di = dictGetSafeIterator(d);
 
         /* Write the SELECT DB opcode */
-        if (rdbSaveType(rdb,RDB_OPCODE_SELECTDB) == -1) goto werr;
-        if (rdbSaveLen(rdb,j) == -1) goto werr;
+		//写入选择索引数据库标识类型
+        if (rdbSaveType(rdb,RDB_OPCODE_SELECTDB) == -1) 
+			goto werr;
+		
+		//写入对应的数据库索引值
+        if (rdbSaveLen(rdb,j) == -1) 
+			goto werr;
 
-        /* Write the RESIZE DB opcode. We trim the size to UINT32_MAX, which
-         * is currently the largest type we are able to represent in RDB sizes.
-         * However this does not limit the actual size of the DB to load since
-         * these sizes are just hints to resize the hash tables. */
+        /* Write the RESIZE DB opcode. We trim the size to UINT32_MAX, which is currently the largest type we are able to represent in RDB sizes.
+         * However this does not limit the actual size of the DB to load since these sizes are just hints to resize the hash tables. */
         uint64_t db_size, expires_size;
+
+		//获取字典元素数量
         db_size = dictSize(db->dict);
+		//获取配置过期时间的字典元素数量
         expires_size = dictSize(db->expires);
-        if (rdbSaveType(rdb,RDB_OPCODE_RESIZEDB) == -1) goto werr;
-        if (rdbSaveLen(rdb,db_size) == -1) goto werr;
-        if (rdbSaveLen(rdb,expires_size) == -1) goto werr;
+
+		//写入字典和过期字典元素数量类型标识
+        if (rdbSaveType(rdb,RDB_OPCODE_RESIZEDB) == -1) 
+			goto werr;
+
+		//写入字典元素数量值
+        if (rdbSaveLen(rdb,db_size) == -1) 
+			goto werr;
+
+		//写入过期字典元素数量值
+        if (rdbSaveLen(rdb,expires_size) == -1) 
+			goto werr;
 
         /* Iterate this DB writing every entry */
+		//循环检测对应的字典中的数据
         while((de = dictNext(di)) != NULL) {
+			//获取对应的键结构sds
             sds keystr = dictGetKey(de);
+			//获取对应的值对象
             robj key, *o = dictGetVal(de);
             long long expire;
 
+			//重新初始化一个对应的键对象
             initStaticStringObject(key,keystr);
+			
+			//获取键对应的过期时间值
             expire = getExpire(db,&key);
-            if (rdbSaveKeyValuePair(rdb,&key,o,expire) == -1) goto werr;
+			//触发将对应的键值对的数据写入到rdb文件中
+            if (rdbSaveKeyValuePair(rdb,&key,o,expire) == -1) 
+				goto werr;
 
-            /* When this RDB is produced as part of an AOF rewrite, move
-             * accumulated diff from parent to child while rewriting in
-             * order to have a smaller final write. */
-            if (flags & RDB_SAVE_AOF_PREAMBLE &&
-                rdb->processed_bytes > processed+AOF_READ_DIFF_INTERVAL_BYTES)
-            {
+            /* When this RDB is produced as part of an AOF rewrite, move accumulated diff from parent to child while rewriting in order to have a smaller final write. */
+            if (flags & RDB_SAVE_AOF_PREAMBLE && rdb->processed_bytes > processed+AOF_READ_DIFF_INTERVAL_BYTES) {
                 processed = rdb->processed_bytes;
                 aofReadDiffFromParent();
             }
         }
+		//循环完成释放对应的迭代器空间
         dictReleaseIterator(di);
+		//置空迭代器指向
         di = NULL; /* So that we don't release it again on error. */
     }
 
     /* If we are storing the replication information on disk, persist
      * the script cache as well: on successful PSYNC after a restart, we need
-     * to be able to process any EVALSHA inside the replication backlog the
-     * master will send us. */
+     * to be able to process any EVALSHA inside the replication backlog the master will send us. */
     if (rsi && dictSize(server.lua_scripts)) {
         di = dictGetIterator(server.lua_scripts);
         while((de = dictNext(di)) != NULL) {
@@ -1215,42 +1292,53 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
         di = NULL; /* So that we don't release it again on error. */
     }
 
-    if (rdbSaveModulesAux(rdb, REDISMODULE_AUX_AFTER_RDB) == -1) goto werr;
+    if (rdbSaveModulesAux(rdb, REDISMODULE_AUX_AFTER_RDB) == -1) 
+		goto werr;
 
     /* EOF opcode */
-    if (rdbSaveType(rdb,RDB_OPCODE_EOF) == -1) goto werr;
+	//数据库数据设置完成之后,写入一个结束标记符
+    if (rdbSaveType(rdb,RDB_OPCODE_EOF) == -1) 
+		goto werr;
 
-    /* CRC64 checksum. It will be zero if checksum computation is disabled, the
-     * loading code skips the check in this case. */
-    cksum = rdb->cksum;
+    /* CRC64 checksum. It will be zero if checksum computation is disabled, the loading code skips the check in this case. */
+	//通过rio对象获取对应的校验码
+	cksum = rdb->cksum;
+	/进行校验码值处理
     memrev64ifbe(&cksum);
-    if (rioWrite(rdb,&cksum,8) == 0) goto werr;
+	//将8字节校验码写入到文件的最后
+    if (rioWrite(rdb,&cksum,8) == 0) 
+		goto werr;
+	//执行完成rdb备份操作处理成功标识
     return C_OK;
 
 werr:
-    if (error) *error = errno;
-    if (di) dictReleaseIterator(di);
+    if (error) 
+		*error = errno;
+    if (di) 
+		dictReleaseIterator(di);
     return C_ERR;
 }
 
-/* This is just a wrapper to rdbSaveRio() that additionally adds a prefix
- * and a suffix to the generated RDB dump. The prefix is:
+/* This is just a wrapper to rdbSaveRio() that additionally adds a prefix and a suffix to the generated RDB dump. The prefix is:
  *
  * $EOF:<40 bytes unguessable hex string>\r\n
  *
  * While the suffix is the 40 bytes hex string we announced in the prefix.
- * This way processes receiving the payload can understand when it ends
- * without doing any processing of the content. */
+ * This way processes receiving the payload can understand when it ends without doing any processing of the content. */
 int rdbSaveRioWithEOFMark(rio *rdb, int *error, rdbSaveInfo *rsi) {
     char eofmark[RDB_EOF_MARK_SIZE];
 
     getRandomHexChars(eofmark,RDB_EOF_MARK_SIZE);
     if (error) *error = 0;
-    if (rioWrite(rdb,"$EOF:",5) == 0) goto werr;
-    if (rioWrite(rdb,eofmark,RDB_EOF_MARK_SIZE) == 0) goto werr;
+    if (rioWrite(rdb,"$EOF:",5) == 0) 
+		goto werr;
+    if (rioWrite(rdb,eofmark,RDB_EOF_MARK_SIZE) == 0) 
+		goto werr;
     if (rioWrite(rdb,"\r\n",2) == 0) goto werr;
-    if (rdbSaveRio(rdb,error,RDB_SAVE_NONE,rsi) == C_ERR) goto werr;
-    if (rioWrite(rdb,eofmark,RDB_EOF_MARK_SIZE) == 0) goto werr;
+    if (rdbSaveRio(rdb,error,RDB_SAVE_NONE,rsi) == C_ERR) 
+		goto werr;
+    if (rioWrite(rdb,eofmark,RDB_EOF_MARK_SIZE) == 0) 
+		goto werr;
     return C_OK;
 
 werr: /* Write error. */
@@ -1260,43 +1348,62 @@ werr: /* Write error. */
 }
 
 /* Save the DB on disk. Return C_ERR on error, C_OK on success. */
+/* 将数据库数据保存在磁盘上，返回C_OK成功，否则返回C_ERR */
 int rdbSave(char *filename, rdbSaveInfo *rsi) {
+	//定义临时存储数据的文件名称
     char tmpfile[256];
+	//定义用于存储当前工作路径的buffer空间
     char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
     FILE *fp;
+	//创建于本次文件操作相关联的rio结构对象
     rio rdb;
     int error = 0;
-
+	
+	//拼接获取对应的备份临时文件的名称
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
+	//以写方式打开临时文件
     fp = fopen(tmpfile,"w");
+	//检测打开文件是否成功
     if (!fp) {
+		//获取对应的文件目录
         char *cwdp = getcwd(cwd,MAXPATHLEN);
+		//写入对应的错误信息日志
         serverLog(LL_WARNING,
             "Failed opening the RDB file %s (in server root dir %s) "
             "for saving: %s",
             filename,
             cwdp ? cwdp : "unknown",
             strerror(errno));
+		//返回执行rdb操作失败的错误标识
         return C_ERR;
     }
 
+	//初始化一个rio对象，该对象是一个文件对象IO 即通过对应的文件句柄来完成rio结构的初始化
     rioInitWithFile(&rdb,fp);
-
+	
+	//检测服务配置参数是否启动了触发sync的操作处理
     if (server.rdb_save_incremental_fsync)
         rioSetAutoSync(&rdb,REDIS_AUTOSYNC_BYTES);
 
+	//核心处理 将redis数据库中的数据写入rio中 即导入对应的临时存储文件中
     if (rdbSaveRio(&rdb,&error,RDB_SAVE_NONE,rsi) == C_ERR) {
         errno = error;
         goto werr;
     }
 
     /* Make sure data will not remain on the OS's output buffers */
-    if (fflush(fp) == EOF) goto werr;
-    if (fsync(fileno(fp)) == -1) goto werr;
-    if (fclose(fp) == EOF) goto werr;
+	//冲洗缓冲区，确保所有的数据都写入磁盘
+    if (fflush(fp) == EOF) 
+		goto werr;
+	//将fp指向的文件同步到磁盘中
+    if (fsync(fileno(fp)) == -1) 
+		goto werr;
+	//关闭文件
+    if (fclose(fp) == EOF) 
+		goto werr;
 
-    /* Use RENAME to make sure the DB file is changed atomically only
-     * if the generate DB file is ok. */
+    /* Use RENAME to make sure the DB file is changed atomically only if the generate DB file is ok. */
+	//原子性改变rdb文件的名字
     if (rename(tmpfile,filename) == -1) {
         char *cwdp = getcwd(cwd,MAXPATHLEN);
         serverLog(LL_WARNING,
@@ -1306,14 +1413,21 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
             filename,
             cwdp ? cwdp : "unknown",
             strerror(errno));
+		//删除对应的临时文件
         unlink(tmpfile);
+		//返回rdb备份失败的标识
         return C_ERR;
     }
-
+	
+	//写入执行rdb操作成功的日志文件
     serverLog(LL_NOTICE,"DB saved on disk");
+	//重置服务器的脏键
     server.dirty = 0;
+	//更新上一次SAVE操作的时间
     server.lastsave = time(NULL);
+	//更新SAVE操作的状态
     server.lastbgsave_status = C_OK;
+	//返回rdb备份操作成功的标识
     return C_OK;
 
 werr:
@@ -1889,8 +2003,7 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
     }
 }
 
-/* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
- * otherwise C_ERR is returned and 'errno' is set accordingly. */
+/* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned, otherwise C_ERR is returned and 'errno' is set accordingly. */
 int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
     uint64_t dbid;
     int type, rdbver;
@@ -2137,7 +2250,8 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi) {
     rio rdb;
     int retval;
 
-    if ((fp = fopen(filename,"r")) == NULL) return C_ERR;
+    if ((fp = fopen(filename,"r")) == NULL) 
+		return C_ERR;
     startLoading(fp);
     rioInitWithFile(&rdb,fp);
     retval = rdbLoadRio(&rdb,rsi,0);
@@ -2452,26 +2566,48 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
     return C_OK; /* Unreached. */
 }
 
+/*
+ * 执行一个同步保存操作，将当前 Redis 实例的所有数据快照(snapshot)以 RDB 文件的形式保存到硬盘
+ * 命令格式
+ *     SAVE
+ * 返回值
+ *     保存成功时返回 OK
+ */
 void saveCommand(client *c) {
+	//检测当前是否处于rdb备份过程中
     if (server.rdb_child_pid != -1) {
+		//向客户端响应整处于rdb备份中的提示信息
         addReplyError(c,"Background save already in progress");
+		//直接返回不再进行相关处理
         return;
     }
     rdbSaveInfo rsi, *rsiptr;
+	//
     rsiptr = rdbPopulateSaveInfo(&rsi);
+	
+	//执行对应的rdb备份操作处理,并检测是否执行成功
     if (rdbSave(server.rdb_filename,rsiptr) == C_OK) {
+		//保存成功向客户端响应成功标识
         addReply(c,shared.ok);
     } else {
+    	//保存失败向客户端响应失败标识
         addReply(c,shared.err);
     }
 }
 
 /* BGSAVE [SCHEDULE] */
+/*
+ * 用于在后台异步保存当前数据库的数据到磁盘
+ *     BGSAVE 命令执行之后立即返回 OK ，然后 Redis fork 出一个新子进程，原来的 Redis 进程(父进程)继续处理客户端请求，而子进程则负责将数据保存到磁盘，然后退出。
+ * 命令格式
+ *     BGSAVE [SCHEDULE]
+ * 返回值
+ *     反馈信息
+ */
 void bgsaveCommand(client *c) {
     int schedule = 0;
 
-    /* The SCHEDULE option changes the behavior of BGSAVE when an AOF rewrite
-     * is in progress. Instead of returning an error a BGSAVE gets scheduled. */
+    /* The SCHEDULE option changes the behavior of BGSAVE when an AOF rewrite is in progress. Instead of returning an error a BGSAVE gets scheduled. */
     if (c->argc > 1) {
         if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"schedule")) {
             schedule = 1;
@@ -2510,8 +2646,7 @@ void bgsaveCommand(client *c) {
  * the Replication ID/offset is not saved. The function popultes 'rsi'
  * that is normally stack-allocated in the caller, returns the populated
  * pointer if the instance has a valid master client, otherwise NULL
- * is returned, and the RDB saving will not persist any replication related
- * information. */
+ * is returned, and the RDB saving will not persist any replication related information. */
 rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi) {
     rdbSaveInfo rsi_init = RDB_SAVE_INFO_INIT;
     *rsi = rsi_init;
@@ -2527,14 +2662,12 @@ rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi) {
         /* Note that when server.slaveseldb is -1, it means that this master
          * didn't apply any write commands after a full synchronization.
          * So we can let repl_stream_db be 0, this allows a restarted slave
-         * to reload replication ID/offset, it's safe because the next write
-         * command must generate a SELECT statement. */
+         * to reload replication ID/offset, it's safe because the next write command must generate a SELECT statement. */
         rsi->repl_stream_db = server.slaveseldb == -1 ? 0 : server.slaveseldb;
         return rsi;
     }
 
-    /* If the instance is a slave we need a connected master
-     * in order to fetch the currently selected DB. */
+    /* If the instance is a slave we need a connected master in order to fetch the currently selected DB. */
     if (server.master) {
         rsi->repl_stream_db = server.master->db->id;
         return rsi;
@@ -2543,11 +2676,15 @@ rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi) {
     /* If we have a cached master we can use it in order to populate the
      * replication selected DB info inside the RDB file: the slave can
      * increment the master_repl_offset only from data arriving from the
-     * master, so if we are disconnected the offset in the cached master
-     * is valid. */
+     * master, so if we are disconnected the offset in the cached master is valid. */
     if (server.cached_master) {
         rsi->repl_stream_db = server.cached_master->db->id;
         return rsi;
     }
     return NULL;
 }
+
+
+
+
+

@@ -430,8 +430,7 @@ struct redisCommand sentinelcmds[] = {
     {"auth",authCommand,2,"sltF",0,NULL,0,0,0,0,0}
 };
 
-/* This function overwrites a few normal Redis config default with Sentinel
- * specific defaults. */
+/* This function overwrites a few normal Redis config default with Sentinel specific defaults. */
 void initSentinelConfig(void) {
     server.port = REDIS_SENTINEL_PORT;
     server.protected_mode = 0; /* Sentinel must be exposed. */
@@ -440,14 +439,11 @@ void initSentinelConfig(void) {
 /* Perform the Sentinel mode initialization. */
 void initSentinel(void) {
     unsigned int j;
-
-    /* Remove usual Redis commands from the command table, then just add
-     * the SENTINEL command. */
+    /* Remove usual Redis commands from the command table, then just add the SENTINEL command. */
     dictEmpty(server.commands,NULL);
     for (j = 0; j < sizeof(sentinelcmds)/sizeof(sentinelcmds[0]); j++) {
         int retval;
         struct redisCommand *cmd = sentinelcmds+j;
-
         retval = dictAdd(server.commands, sdsnew(cmd->name), cmd);
         serverAssert(retval == DICT_OK);
     }
@@ -467,27 +463,22 @@ void initSentinel(void) {
     memset(sentinel.myid,0,sizeof(sentinel.myid));
 }
 
-/* This function gets called when the server is in Sentinel mode, started,
- * loaded the configuration, and is ready for normal operations. */
+/* This function gets called when the server is in Sentinel mode, started, loaded the configuration, and is ready for normal operations. */
 void sentinelIsRunning(void) {
     int j;
 
     if (server.configfile == NULL) {
-        serverLog(LL_WARNING,
-            "Sentinel started without a config file. Exiting...");
+        serverLog(LL_WARNING, "Sentinel started without a config file. Exiting...");
         exit(1);
     } else if (access(server.configfile,W_OK) == -1) {
-        serverLog(LL_WARNING,
-            "Sentinel config file %s is not writable: %s. Exiting...",
-            server.configfile,strerror(errno));
+        serverLog(LL_WARNING, "Sentinel config file %s is not writable: %s. Exiting...", server.configfile, strerror(errno));
         exit(1);
     }
 
-    /* If this Sentinel has yet no ID set in the configuration file, we
-     * pick a random one and persist the config on disk. From now on this
-     * will be this Sentinel ID across restarts. */
+    /* If this Sentinel has yet no ID set in the configuration file, we pick a random one and persist the config on disk. From now on this will be this Sentinel ID across restarts. */
     for (j = 0; j < CONFIG_RUN_ID_SIZE; j++)
-        if (sentinel.myid[j] != 0) break;
+        if (sentinel.myid[j] != 0) 
+			break;
 
     if (j == CONFIG_RUN_ID_SIZE) {
         /* Pick ID and persist the config. */
@@ -498,8 +489,7 @@ void sentinelIsRunning(void) {
     /* Log its ID to make debugging of issues simpler. */
     serverLog(LL_WARNING,"Sentinel ID is %s", sentinel.myid);
 
-    /* We want to generate a +monitor event for every configured master
-     * at startup. */
+    /* We want to generate a +monitor event for every configured master at startup. */
     sentinelGenerateInitialMonitorEvents();
 }
 
@@ -575,16 +565,14 @@ int sentinelAddrIsEqual(sentinelAddr *a, sentinelAddr *b) {
  *
  *  Any other specifier after "%@" is processed by printf itself.
  */
-void sentinelEvent(int level, char *type, sentinelRedisInstance *ri,
-                   const char *fmt, ...) {
+void sentinelEvent(int level, char *type, sentinelRedisInstance *ri, const char *fmt, ...) {
     va_list ap;
     char msg[LOG_MAX_LEN];
     robj *channel, *payload;
 
     /* Handle %@ */
     if (fmt[0] == '%' && fmt[1] == '@') {
-        sentinelRedisInstance *master = (ri->flags & SRI_MASTER) ?
-                                         NULL : ri->master;
+        sentinelRedisInstance *master = (ri->flags & SRI_MASTER) ? NULL : ri->master;
 
         if (master) {
             snprintf(msg, sizeof(msg), "%s %s %s %d @ %s %s %d",

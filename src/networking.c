@@ -1,30 +1,5 @@
 /*
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * 
  */
 
 #include "server.h"
@@ -36,21 +11,20 @@
 
 static void setProtocolError(const char *errstr, client *c);
 
-/* Return the size consumed from the allocator, for the specified SDS string,
- * including internal fragmentation. This function is used in order to compute
- * the client output buffer size. */
+/* Return the size consumed from the allocator, for the specified SDS string, including internal fragmentation. This function is used in order to compute the client output buffer size. */
 size_t sdsZmallocSize(sds s) {
     void *sh = sdsAllocPtr(s);
     return zmalloc_size(sh);
 }
 
-/* Return the amount of memory used by the sds string at object->ptr
- * for a string object. */
+/* Return the amount of memory used by the sds string at object->ptr for a string object. */
 size_t getStringObjectSdsUsedMemory(robj *o) {
     serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
     switch(o->encoding) {
-    case OBJ_ENCODING_RAW: return sdsZmallocSize(o->ptr);
-    case OBJ_ENCODING_EMBSTR: return zmalloc_size(o)-sizeof(robj);
+    case OBJ_ENCODING_RAW: 
+		return sdsZmallocSize(o->ptr);
+    case OBJ_ENCODING_EMBSTR: 
+		return zmalloc_size(o)-sizeof(robj);
     default: return 0; /* Just integer encoding for now. */
     }
 }
@@ -71,13 +45,10 @@ int listMatchObjects(void *a, void *b) {
     return equalStringObjects(a,b);
 }
 
-/* This function links the client to the global linked list of clients.
- * unlinkClient() does the opposite, among other things. */
+/* This function links the client to the global linked list of clients. unlinkClient() does the opposite, among other things. */
 void linkClient(client *c) {
     listAddNodeTail(server.clients,c);
-    /* Note that we remember the linked list node where the client is stored,
-     * this way removing the client in unlinkClient() will not require
-     * a linear scan, but just a constant time operation. */
+    /* Note that we remember the linked list node where the client is stored, this way removing the client in unlinkClient() will not require a linear scan, but just a constant time operation. */
     c->client_list_node = listLast(server.clients);
     uint64_t id = htonu64(c->id);
     raxInsert(server.clients_index,(unsigned char*)&id,sizeof(id),c,NULL);
@@ -95,9 +66,7 @@ client *createClient(int fd) {
         anetEnableTcpNoDelay(NULL,fd);
         if (server.tcpkeepalive)
             anetKeepAlive(NULL,fd,server.tcpkeepalive);
-        if (aeCreateFileEvent(server.el,fd,AE_READABLE,
-            readQueryFromClient, c) == AE_ERR)
-        {
+        if (aeCreateFileEvent(server.el,fd,AE_READABLE,readQueryFromClient, c) == AE_ERR) {
             close(fd);
             zfree(c);
             return NULL;
@@ -170,13 +139,10 @@ client *createClient(int fd) {
  * If we fail and there is more data to write, compared to what the socket
  * buffers can hold, then we'll really install the handler. */
 void clientInstallWriteHandler(client *c) {
-    /* Schedule the client to write the output buffers to the socket only
-     * if not already done and, for slaves, if the slave can actually receive
-     * writes at this stage. */
+    /* Schedule the client to write the output buffers to the socket only if not already done and, for slaves, if the slave can actually receive writes at this stage. */
     if (!(c->flags & CLIENT_PENDING_WRITE) &&
         (c->replstate == REPL_STATE_NONE ||
-         (c->replstate == SLAVE_STATE_ONLINE && !c->repl_put_online_on_ack)))
-    {
+         (c->replstate == SLAVE_STATE_ONLINE && !c->repl_put_online_on_ack))) {
         /* Here instead of installing the write handler, we just flag the
          * client and put it into a list of clients that have something
          * to write to the socket. This way before re-entering the event
@@ -240,14 +206,16 @@ int prepareClientToWrite(client *c) {
 int _addReplyToBuffer(client *c, const char *s, size_t len) {
     size_t available = sizeof(c->buf)-c->bufpos;
 
-    if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return C_OK;
+    if (c->flags & CLIENT_CLOSE_AFTER_REPLY) 
+		return C_OK;
 
-    /* If there already are entries in the reply list, we cannot
-     * add anything more to the static buffer. */
-    if (listLength(c->reply) > 0) return C_ERR;
+    /* If there already are entries in the reply list, we cannot add anything more to the static buffer. */
+    if (listLength(c->reply) > 0)
+		return C_ERR;
 
     /* Check that the buffer has enough space available for this string. */
-    if (len > available) return C_ERR;
+    if (len > available)
+		return C_ERR;
 
     memcpy(c->buf+c->bufpos,s,len);
     c->bufpos+=len;
@@ -255,7 +223,8 @@ int _addReplyToBuffer(client *c, const char *s, size_t len) {
 }
 
 void _addReplyStringToList(client *c, const char *s, size_t len) {
-    if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
+    if (c->flags & CLIENT_CLOSE_AFTER_REPLY) 
+		return;
 
     listNode *ln = listLast(c->reply);
     clientReplyBlock *tail = ln? listNodeValue(ln): NULL;
@@ -661,9 +630,7 @@ int clientHasPendingReplies(client *c) {
 static void acceptCommonHandler(int fd, int flags, char *ip) {
     client *c;
     if ((c = createClient(fd)) == NULL) {
-        serverLog(LL_WARNING,
-            "Error registering fd event for the new client: %s (fd=%d)",
-            strerror(errno),fd);
+        serverLog(LL_WARNING,"Error registering fd event for the new client: %s (fd=%d)",strerror(errno),fd);
         close(fd); /* May be already closed, just ignore errors */
         return;
     }
@@ -739,8 +706,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
             if (errno != EWOULDBLOCK)
-                serverLog(LL_WARNING,
-                    "Accepting client connection: %s", server.neterr);
+                serverLog(LL_WARNING, "Accepting client connection: %s", server.neterr);
             return;
         }
         serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
@@ -776,8 +742,7 @@ static void freeClientArgv(client *c) {
 }
 
 /* Close all the slaves connections. This is useful in chained replication
- * when we resync with our own master and want to force all our slaves to
- * resync with us as well. */
+ * when we resync with our own master and want to force all our slaves to resync with us as well. */
 void disconnectSlaves(void) {
     while (listLength(server.slaves)) {
         listNode *ln = listFirst(server.slaves);
@@ -792,7 +757,8 @@ void unlinkClient(client *c) {
     listNode *ln;
 
     /* If this is marked as current client unset it. */
-    if (server.current_client == c) server.current_client = NULL;
+    if (server.current_client == c) 
+		server.current_client = NULL;
 
     /* Certain operations must be done only if the client has an active socket.
      * If the client was already unlinked or if it's a "fake client" the
@@ -811,8 +777,7 @@ void unlinkClient(client *c) {
          * shutdown the socket the fork will continue to write to the slave
          * and the salve will only find out that it was disconnected when
          * it will finish reading the rdb. */
-        if ((c->flags & CLIENT_SLAVE) &&
-            (c->replstate == SLAVE_STATE_WAIT_BGSAVE_END)) {
+        if ((c->flags & CLIENT_SLAVE) && (c->replstate == SLAVE_STATE_WAIT_BGSAVE_END)) {
             shutdown(c->fd, SHUT_RDWR);
         }
 
@@ -922,7 +887,8 @@ void freeClient(client *c) {
 
     /* Master/slave cleanup Case 2:
      * we lost the connection with the master. */
-    if (c->flags & CLIENT_MASTER) replicationHandleMasterDisconnection();
+    if (c->flags & CLIENT_MASTER) 
+		replicationHandleMasterDisconnection();
 
     /* If this client was scheduled for async freeing we need to remove it
      * from the queue. */
@@ -934,7 +900,8 @@ void freeClient(client *c) {
 
     /* Release other dynamically allocated client structure fields,
      * and finally release the client structure itself. */
-    if (c->name) decrRefCount(c->name);
+    if (c->name) 
+		decrRefCount(c->name);
     zfree(c->argv);
     freeClientMultiState(c);
     sdsfree(c->peerid);
@@ -946,7 +913,8 @@ void freeClient(client *c) {
  * a context where calling freeClient() is not possible, because the client
  * should be valid for the continuation of the flow of the program. */
 void freeClientAsync(client *c) {
-    if (c->flags & CLIENT_CLOSE_ASAP || c->flags & CLIENT_LUA) return;
+    if (c->flags & CLIENT_CLOSE_ASAP || c->flags & CLIENT_LUA) 
+		return;
     c->flags |= CLIENT_CLOSE_ASAP;
     listAddNodeTail(server.clients_to_close,c);
 }
@@ -963,16 +931,14 @@ void freeClientsInAsyncFreeQueue(void) {
 }
 
 /* Return a client by ID, or NULL if the client ID is not in the set
- * of registered clients. Note that "fake clients", created with -1 as FD,
- * are not registered clients. */
+ * of registered clients. Note that "fake clients", created with -1 as FD, are not registered clients. */
 client *lookupClientByID(uint64_t id) {
     id = htonu64(id);
     client *c = raxFind(server.clients_index,(unsigned char*)&id,sizeof(id));
     return (c == raxNotFound) ? NULL : c;
 }
 
-/* Write data in output buffers to client. Return C_OK if the client
- * is still valid after the call, C_ERR if it was freed. */
+/* Write data in output buffers to client. Return C_OK if the client is still valid after the call, C_ERR if it was freed. */
 int writeToClient(int fd, client *c, int handler_installed) {
     ssize_t nwritten = 0, totwritten = 0;
     size_t objlen;
@@ -2009,7 +1975,8 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
     oldval = c->argv[i];
     c->argv[i] = newval;
     incrRefCount(newval);
-    if (oldval) decrRefCount(oldval);
+    if (oldval) 
+		decrRefCount(oldval);
 
     /* If this is the command name make sure to fix c->cmd. */
     if (i == 0) {
