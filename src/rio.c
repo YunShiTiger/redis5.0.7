@@ -282,8 +282,7 @@ void rioSetAutoSync(rio *r, off_t bytes) {
 
 /* --------------------------- Higher level interface --------------------------
  *
- * The following higher level functions use lower level rio.c functions to help
- * generating the Redis protocol for the Append Only File. */
+ * The following higher level functions use lower level rio.c functions to help generating the Redis protocol for the Append Only File. */
 
 /* Write multi bulk count in the format: "*<count>\r\n". */
 size_t rioWriteBulkCount(rio *r, char prefix, long count) {

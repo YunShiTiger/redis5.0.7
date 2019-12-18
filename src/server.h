@@ -1090,6 +1090,7 @@ struct redisServer {
     int saveparamslen;              /* Number of saving points */
 	//redis服务用于保存rdb文件的名称
     char *rdb_filename;             /* Name of RDB file */
+	//用于标识在rdb文件存储时 对过长的字符串数据启用压缩操作处理的标记位
     int rdb_compression;            /* Use compression in RDB? */
     int rdb_checksum;               /* Use RDB checksum? */
     time_t lastsave;                /* Unix time of last successful save */

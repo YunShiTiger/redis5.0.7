@@ -85,15 +85,13 @@ unsigned int LRU_CLOCK(void) {
     return lruclock;
 }
 
-/* Given an object returns the min number of milliseconds the object was never
- * requested, using an approximated LRU algorithm. */
+/* Given an object returns the min number of milliseconds the object was never requested, using an approximated LRU algorithm. */
 unsigned long long estimateObjectIdleTime(robj *o) {
     unsigned long long lruclock = LRU_CLOCK();
     if (lruclock >= o->lru) {
         return (lruclock - o->lru) * LRU_CLOCK_RESOLUTION;
     } else {
-        return (lruclock + (LRU_CLOCK_MAX - o->lru)) *
-                    LRU_CLOCK_RESOLUTION;
+        return (lruclock + (LRU_CLOCK_MAX - o->lru)) * LRU_CLOCK_RESOLUTION;
     }
 }
 
