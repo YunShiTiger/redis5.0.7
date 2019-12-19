@@ -2204,7 +2204,8 @@ int processEventsWhileBlocked(void) {
         int events = 0;
         events += aeProcessEvents(server.el, AE_FILE_EVENTS|AE_DONT_WAIT);
         events += handleClientsWithPendingWrites();
-        if (!events) break;
+        if (!events) 
+			break;
         count += events;
     }
     return count;

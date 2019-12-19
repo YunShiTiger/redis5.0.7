@@ -262,9 +262,10 @@ void rioFreeFdset(rio *r) {
 
 /* ---------------------------- Generic functions ---------------------------- */
 
-/* This function can be installed both in memory and file streams when checksum
- * computation is needed. */
+/* This function can be installed both in memory and file streams when checksum computation is needed. */
+/* 通过给定的字符串数据来根据对应的校验码值 */
 void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len) {
+	//通过数据更新老的校验码值
     r->cksum = crc64(r->cksum,buf,len);
 }
 

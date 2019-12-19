@@ -746,18 +746,20 @@ int incrementallyRehash(int dbid) {
  * as we want to avoid resizing the hash tables when there is a child in order
  * to play well with copy-on-write (otherwise when a resize happens lots of
  * memory pages are copied). The goal of this function is to update the ability
- * for dict.c to resize the hash tables accordingly to the fact we have o not
- * running childs. */
+ * for dict.c to resize the hash tables accordingly to the fact we have o not running childs. */
+/* 更新对应的数据库字典是否允许扩容标识 */
 void updateDictResizePolicy(void) {
+	//检测当前是否处于rdb或者aof操作过程中
     if (server.rdb_child_pid == -1 && server.aof_child_pid == -1)
+		//设置允许进行尺寸变化
         dictEnableResize();
     else
+		//设置不允许尺寸变化 即 不会造成内存的大范围变化
         dictDisableResize();
 }
 
 int hasActiveChildProcess() {
-    return server.rdb_child_pid != -1 ||
-           server.aof_child_pid != -1;
+    return server.rdb_child_pid != -1 || server.aof_child_pid != -1;
 }
 
 /* ======================= Cron: called every 100 ms ======================== */
@@ -1040,8 +1042,7 @@ void databasesCron(void) {
  * This function should be fast because it is called at every command execution
  * in call(), so it is possible to decide if to update the daylight saving
  * info or not using the 'update_daylight_info' argument. Normally we update
- * such info only when calling this function from serverCron() but not when
- * calling it from call(). */
+ * such info only when calling this function from serverCron() but not when calling it from call(). */
 void updateCachedTime(int update_daylight_info) {
     server.ustime = ustime();
     server.mstime = server.ustime / 1000;
@@ -2769,15 +2770,17 @@ int processCommand(client *c) {
 
 /*================================== Shutdown =============================== */
 
-/* Close listening sockets. Also unlink the unix domain socket if
- * unlink_unix_socket is non-zero. */
+/* Close listening sockets. Also unlink the unix domain socket if unlink_unix_socket is non-zero. */
 void closeListeningSockets(int unlink_unix_socket) {
     int j;
 
-    for (j = 0; j < server.ipfd_count; j++) close(server.ipfd[j]);
-    if (server.sofd != -1) close(server.sofd);
+    for (j = 0; j < server.ipfd_count; j++) 
+		close(server.ipfd[j]);
+    if (server.sofd != -1) 
+		close(server.sofd);
     if (server.cluster_enabled)
-        for (j = 0; j < server.cfd_count; j++) close(server.cfd[j]);
+        for (j = 0; j < server.cfd_count; j++) 
+			close(server.cfd[j]);
     if (unlink_unix_socket && server.unixsocket) {
         serverLog(LL_NOTICE,"Removing the unix socket file.");
         unlink(server.unixsocket); /* don't care if this fails */

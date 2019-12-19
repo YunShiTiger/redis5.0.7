@@ -1041,8 +1041,7 @@ void shiftReplicationId(void) {
 /* Returns 1 if the given replication state is a handshake state,
  * 0 otherwise. */
 int slaveIsInHandshakeState(void) {
-    return server.repl_state >= REPL_STATE_RECEIVE_PONG &&
-           server.repl_state <= REPL_STATE_RECEIVE_PSYNC;
+    return server.repl_state >= REPL_STATE_RECEIVE_PONG && server.repl_state <= REPL_STATE_RECEIVE_PSYNC;
 }
 
 /* Avoid the master to detect the slave is timing out while loading the
@@ -1079,13 +1078,12 @@ void replicationCreateMasterClient(int fd, int dbid) {
     server.master->authenticated = 1;
     server.master->reploff = server.master_initial_offset;
     server.master->read_reploff = server.master->reploff;
-    memcpy(server.master->replid, server.master_replid,
-        sizeof(server.master_replid));
-    /* If master offset is set to -1, this master is old and is not
-     * PSYNC capable, so we flag it accordingly. */
+    memcpy(server.master->replid, server.master_replid, sizeof(server.master_replid));
+    /* If master offset is set to -1, this master is old and is not PSYNC capable, so we flag it accordingly. */
     if (server.master->reploff == -1)
         server.master->flags |= CLIENT_PRE_PSYNC;
-    if (dbid != -1) selectDb(server.master,dbid);
+    if (dbid != -1) 
+		selectDb(server.master,dbid);
 }
 
 /* This function will try to re-enable the AOF file after the

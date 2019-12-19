@@ -1275,8 +1275,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
     return 1;
 }
 
-/* Call the module type callback in order to rewrite a data type
- * that is exported by a module and is not handled by Redis itself.
+/* Call the module type callback in order to rewrite a data type that is exported by a module and is not handled by Redis itself.
  * The function returns 0 on error, 1 on success. */
 int rewriteModuleObject(rio *r, robj *key, robj *o) {
     RedisModuleIO io;
@@ -1292,14 +1291,18 @@ int rewriteModuleObject(rio *r, robj *key, robj *o) {
 }
 
 /* This function is called by the child rewriting the AOF file to read the difference accumulated from the parent into a buffer, that is concatenated at the end of the rewrite. */
+/* 在aof重写节点 将父进程中后期操作的写命令通过定义的管道接收到子进程中的aof缓存中 */
 ssize_t aofReadDiffFromParent(void) {
     char buf[65536]; /* Default pipe buffer size on most Linux systems. */
     ssize_t nread, total = 0;
-
-    while ((nread = read(server.aof_pipe_read_data_from_parent,buf,sizeof(buf))) > 0) {
+	//循环读取管道中的数据 写入buffer中
+    while ((nread = read(server.aof_pipe_read_data_from_parent, buf, sizeof(buf))) > 0) {
+		//将对应的buffer中的数据进一步追加到子进程的aof缓存中
         server.aof_child_diff = sdscatlen(server.aof_child_diff,buf,nread);
+		//通过总共处理的字节数
         total += nread;
     }
+	//返回对应的处理的总的字节数
     return total;
 }
 

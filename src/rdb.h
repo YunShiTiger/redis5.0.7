@@ -25,11 +25,11 @@
  * 11|OBKIND this means: specially encoded object will follow. The six bits number specify the kind of object that follows. See the RDB_ENC_* defines.
  *
  * Lengths up to 63 are stored using a single byte, most DB keys, and may values, will fit inside. */
-#define RDB_6BITLEN 0
+#define RDB_6BITLEN 0            
 #define RDB_14BITLEN 1
 #define RDB_32BITLEN 0x80
 #define RDB_64BITLEN 0x81
-#define RDB_ENCVAL 3
+#define RDB_ENCVAL 3              //11 标识是整数类型或者压缩类型的字符串数据标识
 #define RDB_LENERR UINT64_MAX
 
 /* When a length of a string object stored on disk has the first two bits set, the remaining six bits specify a special encoding for the object accordingly to the following defines: */
@@ -88,12 +88,15 @@
 #define RDB_MODULE_OPCODE_STRING 5  /* String. */
 
 /* rdbLoad...() functions flags. */
-#define RDB_LOAD_NONE   0
-#define RDB_LOAD_ENC    (1<<0)
-#define RDB_LOAD_PLAIN  (1<<1)
-#define RDB_LOAD_SDS    (1<<2)
+/* 加载rdb文件中的字符串数据 将其转换成对应标识的数据 */
+#define RDB_LOAD_NONE   0                 //默认的字符串对象形式
+#define RDB_LOAD_ENC    (1<<0)            //进行编码处理的字符串格式
+#define RDB_LOAD_PLAIN  (1<<1)            //原始的字符串格式
+#define RDB_LOAD_SDS    (1<<2)            //sds格式的字符串
 
+//用于标识只是rdb模式的标识
 #define RDB_SAVE_NONE 0
+//用于表示rdb和aof的混合模式标识
 #define RDB_SAVE_AOF_PREAMBLE (1<<0)
 
 int rdbSaveType(rio *rdb, unsigned char type);

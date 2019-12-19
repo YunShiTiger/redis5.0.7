@@ -1001,7 +1001,9 @@ struct redisServer {
     long long stat_active_defrag_key_misses;/* number of keys scanned and not moved */
     long long stat_active_defrag_scanned;   /* number of dictEntries scanned */
     size_t stat_peak_memory;        /* Max used memory record */
+	//用于统计执行一次fork操作需要的时间值
     long long stat_fork_time;       /* Time needed to perform latest fork() */
+	//
     double stat_fork_rate;          /* Fork rate in GB/sec. */
     long long stat_rejected_conn;   /* Clients rejected because of maxclients */
     long long stat_sync_full;       /* Number of full resyncs with slaves. */
@@ -1079,12 +1081,14 @@ struct redisServer {
     int aof_pipe_read_ack_from_child;
     int aof_pipe_write_ack_to_child;
     int aof_pipe_read_ack_from_parent;
-    int aof_stop_sending_diff;     /* If true stop sending accumulated diffs
-                                      to child process. */
+    int aof_stop_sending_diff;     /* If true stop sending accumulated diffs to child process. */
     sds aof_child_diff;             /* AOF diff accumulator child side. */
     /* RDB persistence */
+	//用于记录从上次备份到当前已经执行写操作的次数
     long long dirty;                /* Changes to DB from the last save */
+	//用于临时记录备份前已经执行的写操作次数
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
+	//用于记录进行rdb任务的子进程的pid
     pid_t rdb_child_pid;            /* PID of RDB saving child */
     struct saveparam *saveparams;   /* Save points array for RDB */
     int saveparamslen;              /* Number of saving points */
@@ -1241,6 +1245,7 @@ struct redisServer {
     lua_State *lua; /* The Lua interpreter. We use just one for all clients */
     client *lua_client;   /* The "fake client" to query Redis from Lua */
     client *lua_caller;   /* The client running EVAL right now, or NULL */
+	//redis服务中存储lua脚本的字典结构
     dict *lua_scripts;         /* A dictionary of SHA1 -> Lua scripts */
     unsigned long long lua_scripts_mem;  /* Cached scripts' memory + oh */
     mstime_t lua_time_limit;  /* Script timeout in milliseconds */
