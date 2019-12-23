@@ -14,7 +14,6 @@
  * for the current checksum.
  */
 
-
 #include "fmacros.h"
 #include <string.h>
 #include <stdio.h>
@@ -48,8 +47,7 @@ static off_t rioBufferTell(rio *r) {
     return r->io.buffer.pos;
 }
 
-/* Flushes any buffer to target device if applicable. Returns 1 on success
- * and 0 on failures. */
+/* Flushes any buffer to target device if applicable. Returns 1 on success and 0 on failures. */
 static int rioBufferFlush(rio *r) {
     UNUSED(r);
     return 1; /* Nothing to do, our write just appends to the buffer. */
@@ -76,7 +74,7 @@ void rioInitWithBuffer(rio *r, sds s) {
 /* --------------------- Stdio file pointer implementation ------------------- */
 
 /* Returns 1 or 0 for success/failure. */
-/* 通过rio结构 将对应的buffer中的数据写到对应的文件中 */
+/* 通过rio结构(其实关联的就是文件) 将对应的buffer中的数据写到对应的文件中 */
 static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
     size_t retval;
 
@@ -97,16 +95,19 @@ static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
 }
 
 /* Returns 1 or 0 for success/failure. */
+/* 通过rio结构(其实关联的就是文件) 读取指定数量的数据到buffer中*/
 static size_t rioFileRead(rio *r, void *buf, size_t len) {
     return fread(buf,len,1,r->io.file.fp);
 }
 
 /* Returns read/write position in file. */
+/* 获取当前写入或者读取的位置信息 */
 static off_t rioFileTell(rio *r) {
     return ftello(r->io.file.fp);
 }
 
 /* Flushes any buffer to target device if applicable. Returns 1 on success and 0 on failures. */
+/* 将数据刷入到文件中 */
 static int rioFileFlush(rio *r) {
     return (fflush(r->io.file.fp) == 0) ? 1 : 0;
 }
@@ -139,9 +140,7 @@ void rioInitWithFile(rio *r, FILE *fp) {
 
 /* Returns 1 or 0 for success/failure.
  * The function returns success as long as we are able to correctly write to at least one file descriptor.
- *
- * When buf is NULL and len is 0, the function performs a flush operation
- * if there is some pending buffer, so this function is also used in order to implement rioFdsetFlush(). */
+ * When buf is NULL and len is 0, the function performs a flush operation if there is some pending buffer, so this function is also used in order to implement rioFdsetFlush(). */
 static size_t rioFdsetWrite(rio *r, const void *buf, size_t len) {
     ssize_t retval;
     int j;
@@ -222,8 +221,7 @@ static off_t rioFdsetTell(rio *r) {
 /* Flushes any buffer to target device if applicable. Returns 1 on success
  * and 0 on failures. */
 static int rioFdsetFlush(rio *r) {
-    /* Our flush is implemented by the write method, that recognizes a
-     * buffer set to NULL with a count of zero as a flush request. */
+    /* Our flush is implemented by the write method, that recognizes a buffer set to NULL with a count of zero as a flush request. */
     return rioFdsetWrite(r,NULL,0);
 }
 
@@ -302,9 +300,12 @@ size_t rioWriteBulkCount(rio *r, char prefix, long count) {
 size_t rioWriteBulkString(rio *r, const char *buf, size_t len) {
     size_t nwritten;
 
-    if ((nwritten = rioWriteBulkCount(r,'$',len)) == 0) return 0;
-    if (len > 0 && rioWrite(r,buf,len) == 0) return 0;
-    if (rioWrite(r,"\r\n",2) == 0) return 0;
+    if ((nwritten = rioWriteBulkCount(r,'$',len)) == 0) 
+		return 0;
+    if (len > 0 && rioWrite(r,buf,len) == 0) 
+		return 0;
+    if (rioWrite(r,"\r\n",2) == 0) 
+		return 0;
     return nwritten+len+2;
 }
 

@@ -1200,9 +1200,7 @@ sds luaCreateFunction(client *c, lua_State *lua, robj *body) {
 
     if (luaL_loadbuffer(lua,funcdef,sdslen(funcdef),"@user_script")) {
         if (c != NULL) {
-            addReplyErrorFormat(c,
-                "Error compiling script (new function): %s\n",
-                lua_tostring(lua,-1));
+            addReplyErrorFormat(c, "Error compiling script (new function): %s\n", lua_tostring(lua,-1));
         }
         lua_pop(lua,1);
         sdsfree(sha);
@@ -1213,17 +1211,14 @@ sds luaCreateFunction(client *c, lua_State *lua, robj *body) {
 
     if (lua_pcall(lua,0,0,0)) {
         if (c != NULL) {
-            addReplyErrorFormat(c,"Error running script (new function): %s\n",
-                lua_tostring(lua,-1));
+            addReplyErrorFormat(c,"Error running script (new function): %s\n", lua_tostring(lua,-1));
         }
         lua_pop(lua,1);
         sdsfree(sha);
         return NULL;
     }
 
-    /* We also save a SHA1 -> Original script map in a dictionary
-     * so that we can replicate / write in the AOF all the
-     * EVALSHA commands as EVAL using the original script. */
+    /* We also save a SHA1 -> Original script map in a dictionary so that we can replicate / write in the AOF all the EVALSHA commands as EVAL using the original script. */
     int retval = dictAdd(server.lua_scripts,sha,body);
     serverAssertWithInfo(c ? c : server.lua_client,NULL,retval == DICT_OK);
     server.lua_scripts_mem += sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(body);

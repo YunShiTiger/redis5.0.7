@@ -22,15 +22,9 @@ void aofClosePipes(void);
 /* ----------------------------------------------------------------------------
  * AOF rewrite buffer implementation.
  *
- * The following code implement a simple buffer used in order to accumulate
- * changes while the background process is rewriting the AOF file.
- *
- * We only need to append, but can't just use realloc with a large block
- * because 'huge' reallocs are not always handled as one could expect
- * (via remapping of pages at OS level) but may involve copying data.
- *
- * For this reason we use a list of blocks, every block is
- * AOF_RW_BUF_BLOCK_SIZE bytes.
+ * The following code implement a simple buffer used in order to accumulate changes while the background process is rewriting the AOF file.
+ * We only need to append, but can't just use realloc with a large block because 'huge' reallocs are not always handled as one could expect (via remapping of pages at OS level) but may involve copying data.
+ * For this reason we use a list of blocks, every block is AOF_RW_BUF_BLOCK_SIZE bytes.
  * ------------------------------------------------------------------------- */
 
 #define AOF_RW_BUF_BLOCK_SIZE (1024*1024*10)    /* 10 MB per block */
@@ -40,9 +34,7 @@ typedef struct aofrwblock {
     char buf[AOF_RW_BUF_BLOCK_SIZE];
 } aofrwblock;
 
-/* This function free the old AOF rewrite buffer if needed, and initialize
- * a fresh new one. It tests for server.aof_rewrite_buf_blocks equal to NULL
- * so can be used for the first initialization as well. */
+/* This function free the old AOF rewrite buffer if needed, and initialize a fresh new one. It tests for server.aof_rewrite_buf_blocks equal to NULL so can be used for the first initialization as well. */
 void aofRewriteBufferReset(void) {
     if (server.aof_rewrite_buf_blocks)
         listRelease(server.aof_rewrite_buf_blocks);
@@ -65,9 +57,7 @@ unsigned long aofRewriteBufferSize(void) {
     return size;
 }
 
-/* Event handler used to send data to the child process doing the AOF
- * rewrite. We send pieces of our AOF differences buffer so that the final
- * write when the child finishes the rewrite will be small. */
+/* Event handler used to send data to the child process doing the AOF rewrite. We send pieces of our AOF differences buffer so that the final write when the child finishes the rewrite will be small. */
 void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
     listNode *ln;
     aofrwblock *block;
@@ -81,19 +71,18 @@ void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
         ln = listFirst(server.aof_rewrite_buf_blocks);
         block = ln ? ln->value : NULL;
         if (server.aof_stop_sending_diff || !block) {
-            aeDeleteFileEvent(server.el,server.aof_pipe_write_data_to_child,
-                              AE_WRITABLE);
+            aeDeleteFileEvent(server.el,server.aof_pipe_write_data_to_child, AE_WRITABLE);
             return;
         }
         if (block->used > 0) {
-            nwritten = write(server.aof_pipe_write_data_to_child,
-                             block->buf,block->used);
+            nwritten = write(server.aof_pipe_write_data_to_child, block->buf,block->used);
             if (nwritten <= 0) return;
             memmove(block->buf,block->buf+nwritten,block->used-nwritten);
             block->used -= nwritten;
             block->free += nwritten;
         }
-        if (block->used == 0) listDelNode(server.aof_rewrite_buf_blocks,ln);
+        if (block->used == 0) 
+			listDelNode(server.aof_rewrite_buf_blocks,ln);
     }
 }
 
@@ -128,10 +117,8 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
              * as a notice or warning. */
             numblocks = listLength(server.aof_rewrite_buf_blocks);
             if (((numblocks+1) % 10) == 0) {
-                int level = ((numblocks+1) % 100) == 0 ? LL_WARNING :
-                                                         LL_NOTICE;
-                serverLog(level,"Background AOF buffer size: %lu MB",
-                    aofRewriteBufferSize()/(1024*1024));
+                int level = ((numblocks+1) % 100) == 0 ? LL_WARNING : LL_NOTICE;
+                serverLog(level,"Background AOF buffer size: %lu MB", aofRewriteBufferSize()/(1024*1024));
             }
         }
     }
@@ -139,14 +126,11 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
     /* Install a file event to send data to the rewrite child if there is
      * not one already. */
     if (aeGetFileEvents(server.el,server.aof_pipe_write_data_to_child) == 0) {
-        aeCreateFileEvent(server.el, server.aof_pipe_write_data_to_child,
-            AE_WRITABLE, aofChildWriteDiffData, NULL);
+        aeCreateFileEvent(server.el, server.aof_pipe_write_data_to_child, AE_WRITABLE, aofChildWriteDiffData, NULL);
     }
 }
 
-/* Write the buffer (possibly composed of multiple blocks) into the specified
- * fd. If a short write or any other error happens -1 is returned,
- * otherwise the number of bytes written is returned. */
+/* Write the buffer (possibly composed of multiple blocks) into the specified fd. If a short write or any other error happens -1 is returned, otherwise the number of bytes written is returned. */
 ssize_t aofRewriteBufferWrite(int fd) {
     listNode *ln;
     listIter li;
@@ -173,14 +157,12 @@ ssize_t aofRewriteBufferWrite(int fd) {
  * AOF file implementation
  * ------------------------------------------------------------------------- */
 
-/* Return true if an AOf fsync is currently already in progress in a
- * BIO thread. */
+/* Return true if an AOf fsync is currently already in progress in a BIO thread. */
 int aofFsyncInProgress(void) {
     return bioPendingJobsOfType(BIO_AOF_FSYNC) != 0;
 }
 
-/* Starts a background task that performs fsync() against the specified
- * file descriptor (the one of the AOF file) in another thread. */
+/* Starts a background task that performs fsync() against the specified file descriptor (the one of the AOF file) in another thread. */
 void aof_background_fsync(int fd) {
     bioCreateBackgroundJob(BIO_AOF_FSYNC,(void*)(long)fd,NULL,NULL);
 }
@@ -191,8 +173,7 @@ static void killAppendOnlyChild(void) {
     /* No AOFRW child? return. */
     if (server.aof_child_pid == -1) return;
     /* Kill AOFRW child, wait for child exit. */
-    serverLog(LL_NOTICE,"Killing running AOF rewrite child: %ld",
-        (long) server.aof_child_pid);
+    serverLog(LL_NOTICE,"Killing running AOF rewrite child: %ld", (long) server.aof_child_pid);
     if (kill(server.aof_child_pid,SIGUSR1) != -1) {
         while(wait3(&statloc,0,NULL) != server.aof_child_pid);
     }
@@ -205,8 +186,7 @@ static void killAppendOnlyChild(void) {
     aofClosePipes();
 }
 
-/* Called when the user switches from "appendonly yes" to "appendonly no"
- * at runtime using the CONFIG command. */
+/* Called when the user switches from "appendonly yes" to "appendonly no" at runtime using the CONFIG command. */
 void stopAppendOnly(void) {
     serverAssert(server.aof_state != AOF_OFF);
     flushAppendOnlyFile(1);
@@ -219,8 +199,7 @@ void stopAppendOnly(void) {
     killAppendOnlyChild();
 }
 
-/* Called when the user switches from "appendonly no" to "appendonly yes"
- * at runtime using the CONFIG command. */
+/* Called when the user switches from "appendonly no" to "appendonly yes" at runtime using the CONFIG command. */
 int startAppendOnly(void) {
     char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
     int newfd;
@@ -255,8 +234,7 @@ int startAppendOnly(void) {
             return C_ERR;
         }
     }
-    /* We correctly switched on AOF, now wait for the rewrite to be complete
-     * in order to append data on disk. */
+    /* We correctly switched on AOF, now wait for the rewrite to be complete in order to append data on disk. */
     server.aof_state = AOF_WAIT_REWRITE;
     server.aof_last_fsync = server.unixtime;
     server.aof_fd = newfd;
@@ -275,7 +253,6 @@ ssize_t aofWrite(int fd, const char *buf, size_t len) {
 
     while(len) {
         nwritten = write(fd, buf, len);
-
         if (nwritten < 0) {
             if (errno == EINTR) {
                 continue;
@@ -335,22 +312,17 @@ void flushAppendOnlyFile(int force) {
         sync_in_progress = aofFsyncInProgress();
 
     if (server.aof_fsync == AOF_FSYNC_EVERYSEC && !force) {
-        /* With this append fsync policy we do background fsyncing.
-         * If the fsync is still in progress we can try to delay
-         * the write for a couple of seconds. */
+        /* With this append fsync policy we do background fsyncing. If the fsync is still in progress we can try to delay the write for a couple of seconds. */
         if (sync_in_progress) {
             if (server.aof_flush_postponed_start == 0) {
-                /* No previous write postponing, remember that we are
-                 * postponing the flush and return. */
+                /* No previous write postponing, remember that we are postponing the flush and return. */
                 server.aof_flush_postponed_start = server.unixtime;
                 return;
             } else if (server.unixtime - server.aof_flush_postponed_start < 2) {
-                /* We were already waiting for fsync to finish, but for less
-                 * than two seconds this is still ok. Postpone again. */
+                /* We were already waiting for fsync to finish, but for less than two seconds this is still ok. Postpone again. */
                 return;
             }
-            /* Otherwise fall trough, and go write since we can't wait
-             * over two seconds. */
+            /* Otherwise fall trough, and go write since we can't wait over two seconds. */
             server.aof_delayed_fsync++;
             serverLog(LL_NOTICE,"Asynchronous AOF fsync is taking too long (disk is busy?). Writing the AOF buffer without waiting for fsync to complete, this may slow down Redis.");
         }
@@ -358,8 +330,7 @@ void flushAppendOnlyFile(int force) {
     /* We want to perform a single write. This should be guaranteed atomic
      * at least if the filesystem we are writing is a real physical one.
      * While this will save us against the server being killed I don't think
-     * there is much to do about the whole server stopping for power problems
-     * or alike */
+     * there is much to do about the whole server stopping for power problems or alike */
 
     latencyStartMonitor(latency);
     nwritten = aofWrite(server.aof_fd,server.aof_buf,sdslen(server.aof_buf));
@@ -394,8 +365,7 @@ void flushAppendOnlyFile(int force) {
         /* Log the AOF write error and record the error code. */
         if (nwritten == -1) {
             if (can_log) {
-                serverLog(LL_WARNING,"Error writing to the AOF file: %s",
-                    strerror(errno));
+                serverLog(LL_WARNING,"Error writing to the AOF file: %s", strerror(errno));
                 server.aof_last_write_errno = errno;
             }
         } else {
@@ -415,8 +385,7 @@ void flushAppendOnlyFile(int force) {
                              "ftruncate: %s", strerror(errno));
                 }
             } else {
-                /* If the ftruncate() succeeded we can set nwritten to
-                 * -1 since there is no longer partial data into the AOF. */
+                /* If the ftruncate() succeeded we can set nwritten to -1 since there is no longer partial data into the AOF. */
                 nwritten = -1;
             }
             server.aof_last_write_errno = ENOSPC;
@@ -448,15 +417,13 @@ void flushAppendOnlyFile(int force) {
         /* Successful write(2). If AOF was in error state, restore the
          * OK state and log the event. */
         if (server.aof_last_write_status == C_ERR) {
-            serverLog(LL_WARNING,
-                "AOF write error looks solved, Redis can write again.");
+            serverLog(LL_WARNING, "AOF write error looks solved, Redis can write again.");
             server.aof_last_write_status = C_OK;
         }
     }
     server.aof_current_size += nwritten;
 
-    /* Re-use AOF buffer when it is small enough. The maximum comes from the
-     * arena size of 4k minus some overhead (but is otherwise arbitrary). */
+    /* Re-use AOF buffer when it is small enough. The maximum comes from the arena size of 4k minus some overhead (but is otherwise arbitrary). */
     if ((sdslen(server.aof_buf)+sdsavail(server.aof_buf)) < 4000) {
         sdsclear(server.aof_buf);
     } else {
@@ -473,16 +440,14 @@ try_fsync:
 
     /* Perform the fsync if needed. */
     if (server.aof_fsync == AOF_FSYNC_ALWAYS) {
-        /* redis_fsync is defined as fdatasync() for Linux in order to avoid
-         * flushing metadata. */
+        /* redis_fsync is defined as fdatasync() for Linux in order to avoid flushing metadata. */
         latencyStartMonitor(latency);
         redis_fsync(server.aof_fd); /* Let's try to get this data on the disk */
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("aof-fsync-always",latency);
         server.aof_fsync_offset = server.aof_current_size;
         server.aof_last_fsync = server.unixtime;
-    } else if ((server.aof_fsync == AOF_FSYNC_EVERYSEC &&
-                server.unixtime > server.aof_last_fsync)) {
+    } else if ((server.aof_fsync == AOF_FSYNC_EVERYSEC && server.unixtime > server.aof_last_fsync)) {
         if (!sync_in_progress) {
             aof_background_fsync(server.aof_fd);
             server.aof_fsync_offset = server.aof_current_size;
@@ -688,37 +653,51 @@ int loadAppendOnlyFile(char *filename) {
 
     /* Handle a zero-length AOF file as a special case. An empty AOF file is a valid AOF because an empty server with AOF enabled will create
      * a zero length file at startup, that will remain like that if no write operation is received. */
+    //读取文件的统计信息 并检测文件内容是否为零
     if (fp && redis_fstat(fileno(fp),&sb) != -1 && sb.st_size == 0) {
         server.aof_current_size = 0;
         server.aof_fsync_offset = server.aof_current_size;
+		//关闭对应的aof文件
         fclose(fp);
+		//返回加载aof进行初始化数据失败的标识 没有数据也算加载失败
         return C_ERR;
     }
 
     /* Temporarily disable AOF, to prevent EXEC from feeding a MULTI to the same file we're about to read. */
     server.aof_state = AOF_OFF;
 
+	//模拟创建一个类似的客户端 即进行命令的发送 然后让redis服务器进行执行 从而完成命令数据的导入操作处理
     fakeClient = createFakeClient();
+	//设置开始解析标识
     startLoading(fp);
 
     /* Check if this AOF file has an RDB preamble. In that case we need to load the RDB file and later continue loading the AOF tail. */
-    char sig[5]; /* "REDIS" */
+	//定义存储文件中前5个字符的buffer空间
+	char sig[5]; /* "REDIS" */
+	//读取前五个字符 并检测是否是REDIS 即确定是否是rdb和aof的混合模式
     if (fread(sig,1,5,fp) != 5 || memcmp(sig,"REDIS",5) != 0) {
         /* No RDB preamble, seek back at 0 offset. */
+		//非混合模式 将对应的位置设置到起始位置
         if (fseek(fp,0,SEEK_SET) == -1) 
 			goto readerr;
     } else {
         /* RDB preamble. Pass loading the RDB functions. */
+		//混合模式 优先进行rdb文件部分的数据加载操作处理
         rio rdb;
-
+		//输出优先解析rdb部分数据加载的日志
         serverLog(LL_NOTICE,"Reading RDB preamble from AOF file...");
+		//重新将读取位置设置到起始位置处
         if (fseek(fp,0,SEEK_SET) == -1) 
 			goto readerr;
+		//根据文件来初始化rio结构
         rioInitWithFile(&rdb,fp);
+		//进行rdb部分的数据加载操作处理
         if (rdbLoadRio(&rdb,NULL,1) != C_OK) {
+			//加载过程中遇到错误 输出对应的错误日志
             serverLog(LL_WARNING,"Error reading the RDB preamble of the AOF file, AOF loading aborted");
             goto readerr;
         } else {
+			//加载成功 输出rdb部分数据加载成功日志
             serverLog(LL_NOTICE,"Reading the remaining AOF tail...");
         }
     }
@@ -742,9 +721,12 @@ int loadAppendOnlyFile(char *filename) {
 		//获取一行数据 注意aof文件中一条命令 分为多行 
 		//其中第一行为 *n 表示本命令有几个参数 其中命令本身也是一个参数 而且总是第一个参数
         if (fgets(buf,sizeof(buf),fp) == NULL) {
+			//检测文件是否到了结束位置
             if (feof(fp))
+				//直接退出循环----->即真的读取到了结束位置 不能在读取数据了
                 break;
             else
+				//没有到结束位置 确不能读取数据 进行错误处理
                 goto readerr;
         }
 
@@ -760,7 +742,7 @@ int loadAppendOnlyFile(char *filename) {
         if (argc < 1) 
 			goto fmterr;
 
-		//开辟对应大小的存放参数的空间 即参数数组
+		//开辟对应大小的存放参数的空间 即参数数组 注意这个地方是开辟的对象类型的空间 即所有的参数都要以对象的方式进行存储记录
         argv = zmalloc(sizeof(robj*)*argc);
 		/* 下面配置对应的fake客户端 后期就是使用fake客户端向redis服务发送命令进行执行对应的命令 */
 		//将参数数量设置到fake客户端上
@@ -770,29 +752,29 @@ int loadAppendOnlyFile(char *filename) {
 
 		//循环解析对应的命令参数
         for (j = 0; j < argc; j++) {
-			
+			//读取一行数据 本行数据对应的是参数字符串的长度值                           注意这个地方读取的是一行 包含了换行符
             if (fgets(buf,sizeof(buf),fp) == NULL) {
                 fakeClient->argc = j; /* Free up to j-1. */
                 freeFakeClientArgv(fakeClient);
                 goto readerr;
             }
-			//
+			//检测第一个字节是否是表示参数字符串长度值的标识符
             if (buf[0] != '$') 
 				goto fmterr;
-			//
+			//获取对应的长度值
             len = strtol(buf+1,NULL,10);
-			//
+			//创建对应长度的sds结构---->将对应的字符串数据写入本结构中 将本结构挂载到对应的字符串对象上
             argsds = sdsnewlen(SDS_NOINIT,len);
-			//
+			//读取对应长度的字符串数据 注意这个地方读取的是指定长度的数据 并没有读取数据后面的换行符的部分 所以后面要单独再读取一次
             if (len && fread(argsds,len,1,fp) == 0) {
                 sdsfree(argsds);
                 fakeClient->argc = j; /* Free up to j-1. */
                 freeFakeClientArgv(fakeClient);
                 goto readerr;
             }
-			//
+			//根据读取的字符串数据创建对应的字符串对象
             argv[j] = createObject(OBJ_STRING,argsds);
-			//
+			//向后读取两个字节数据 即读取对应的换行符标识
             if (fread(buf,2,1,fp) == 0) {
                 fakeClient->argc = j+1; /* Free up to j. */
                 freeFakeClientArgv(fakeClient);
@@ -811,14 +793,20 @@ int loadAppendOnlyFile(char *filename) {
 			exit(1);
         }
 
+		//检测对应的命令是否是事物相关的命令
         if (cmd == server.multiCommand) 
 			valid_before_multi = valid_up_to;
 
         /* Run the command in the context of a fake client */
+		//记录对应的指向命令结构
         fakeClient->cmd = cmd;
+		//检测当前模拟客户端是否处于事物命令过程中 同时对应的新的执行命令不是事物结束命令
         if (fakeClient->flags & CLIENT_MULTI && fakeClient->cmd->proc != execCommand) {
+			//将对应的解析的命令存储到待执行命令队列中---->等待获取事物结束命令 进行执行
             queueMultiCommand(fakeClient);
         } else {
+        	//执行对应的命令操作处理 
+        	//在上述代码中我发现没有对应CLIENT_MULTI状态位的设置操作处理 感觉应该在这里边进行了设置事物操作的状态位
             cmd->proc(fakeClient);
         }
 

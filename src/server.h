@@ -208,7 +208,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CLIENT_SLAVE (1<<0)   /* This client is a slave server */
 #define CLIENT_MASTER (1<<1)  /* This client is a master server */
 #define CLIENT_MONITOR (1<<2) /* This client is a slave monitor, see MONITOR */
-//客户端处于
+//客户端处于事物命令状态标识
 #define CLIENT_MULTI (1<<3)   /* This client is in a MULTI context */
 //客户端处于堵塞状态标识
 #define CLIENT_BLOCKED (1<<4) /* The client is waiting in a blocking operation */
@@ -643,25 +643,19 @@ typedef struct multiCmd {
 typedef struct multiState {
     multiCmd *commands;     /* Array of MULTI commands */
     int count;              /* Total number of MULTI commands */
-    int cmd_flags;          /* The accumulated command flags OR-ed together.
-                               So if at least a command has a given flag, it
-                               will be set in this field. */
+    int cmd_flags;          /* The accumulated command flags OR-ed together. So if at least a command has a given flag, it will be set in this field. */
     int minreplicas;        /* MINREPLICAS for synchronous replication */
     time_t minreplicas_timeout; /* MINREPLICAS timeout as unixtime. */
 } multiState;
 
-/* This structure holds the blocking operation state for a client.
- * The fields used depend on client->btype. */
+/* This structure holds the blocking operation state for a client. The fields used depend on client->btype. */
 typedef struct blockingState {
     /* Generic fields. */
-    mstime_t timeout;       /* Blocking operation timeout. If UNIX current time
-                             * is > timeout then the operation timed out. */
+    mstime_t timeout;       /* Blocking operation timeout. If UNIX current time is > timeout then the operation timed out. */
 
     /* BLOCKED_LIST, BLOCKED_ZSET and BLOCKED_STREAM */
-    dict *keys;             /* The keys we are waiting to terminate a blocking
-                             * operation such as BLPOP or XREAD. Or NULL. */
-    robj *target;           /* The key that should receive the element,
-                             * for BRPOPLPUSH. */
+    dict *keys;             /* The keys we are waiting to terminate a blocking operation such as BLPOP or XREAD. Or NULL. */
+    robj *target;           /* The key that should receive the element, for BRPOPLPUSH. */
 
     /* BLOCK_STREAM */
     size_t xread_count;     /* XREAD COUNT option. */
@@ -675,9 +669,7 @@ typedef struct blockingState {
     long long reploffset;   /* Replication offset to reach. */
 
     /* BLOCKED_MODULE */
-    void *module_blocked_handle; /* RedisModuleBlockedClient structure.
-                                    which is opaque for the Redis core, only
-                                    handled in module.c. */
+    void *module_blocked_handle; /* RedisModuleBlockedClient structure. which is opaque for the Redis core, only handled in module.c. */
 } blockingState;
 
 /* The following structure represents a node in the server.ready_keys list,
@@ -742,6 +734,7 @@ typedef struct client {
     int slave_listening_port; /* As configured with: SLAVECONF listening-port */
     char slave_ip[NET_IP_STR_LEN]; /* Optionally given by REPLCONF ip-address */
     int slave_capa;         /* Slave capabilities: SLAVE_CAPA_* bitwise OR. */
+	//在事物过程中用于存储客户端传入的事物过程中的命令队列结构
     multiState mstate;      /* MULTI/EXEC state */
     int btype;              /* Type of blocking op if CLIENT_BLOCKED. */
     blockingState bpop;     /* blocking state */

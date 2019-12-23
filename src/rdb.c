@@ -1874,6 +1874,7 @@ robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename) {
 }
 
 /* Load a Redis object of the specified type from the specified file. On success a newly allocated object is returned, otherwise NULL. */
+/* 从rdb文件中根据给定的类型来加载对应的值对象的数据 */
 robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
     robj *o = NULL, *ele, *dec;
     uint64_t len;
@@ -1881,66 +1882,89 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
 
     if (rdbtype == RDB_TYPE_STRING) {
         /* Read string value */
+		//字符串值对象 此处如果字符串能够Embedded编码 就以此方式来生成字符串对象
         if ((o = rdbLoadEncodedStringObject(rdb)) == NULL) 
 			return NULL;
+		//加载完字符串对象之后 进一步尝试进行编码操作处理 目的是节省空间
         o = tryObjectEncoding(o);
     } else if (rdbtype == RDB_TYPE_LIST) {
         /* Read list value */
+		//列表值对象       首先加载对应的元素数量
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) 
 			return NULL;
-
+		//创建对应的列表值对象
         o = createQuicklistObject();
+		//配置属性信息
         quicklistSetOptions(o->ptr, server.list_max_ziplist_size, server.list_compress_depth);
 
         /* Load every single element of the list */
+		//循环加载对应的链表节点数据
         while(len--) {
+			//加载存储的列表节点数据 即ziplist中的数据
             if ((ele = rdbLoadEncodedStringObject(rdb)) == NULL) 
 				return NULL;
+			//进行解码字符串对象操作处理
             dec = getDecodedObject(ele);
+			//获取对应的长度值
             size_t len = sdslen(dec->ptr);
+			//将对应的数据添加到链表节点的尾部
             quicklistPushTail(o->ptr, dec->ptr, len);
+			//释放对应的值对象
             decrRefCount(dec);
             decrRefCount(ele);
         }
     } else if (rdbtype == RDB_TYPE_SET) {
         /* Read Set value */
+		//集合值对象 此处的类型其实是字典编码类型的集合 
+		//首先加载对应的元素数量
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) 
 			return NULL;
 
         /* Use a regular set when there are too many entries. */
+		//通过元素数量来确定创建的集合的编码方式类型                       这个地方作者有可能是想先把字典类型的做出整数类型的 
         if (len > server.set_max_intset_entries) {
+			//创建集合类型的对象
             o = createSetObject();
-            /* It's faster to expand the dict to the right size asap in order
-             * to avoid rehashing */
+            /* It's faster to expand the dict to the right size asap in order to avoid rehashing */
+			//检测元素数量是否超过了对应的门限
             if (len > DICT_HT_INITIAL_SIZE)
+				//进行扩容操作处理  这样在后续添加元素是就不需要频繁进行扩容操作处理了
                 dictExpand(o->ptr,len);
         } else {
+        	//创建整数集合值对象
             o = createIntsetObject();
         }
 
         /* Load every single element of the set */
+		//循环加载对应的集合元素
         for (i = 0; i < len; i++) {
             long long llval;
             sds sdsele;
-
-            if ((sdsele = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL))
-                == NULL) return NULL;
-
+			//加载对应的元素数据
+            if ((sdsele = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) 
+				return NULL;
+			//检测当前集合的编码方式来进行不同的插入操作处理
             if (o->encoding == OBJ_ENCODING_INTSET) {
                 /* Fetch integer value from element. */
+				//检测对应的数据是否是整数数据
                 if (isSdsRepresentableAsLongLong(sdsele,&llval) == C_OK) {
+					//添加到整数集合中
                     o->ptr = intsetAdd(o->ptr,llval,NULL);
                 } else {
+                	//进行类型的转换操作处理
                     setTypeConvert(o,OBJ_ENCODING_HT);
+					//同时进行扩容操作处理 即后续不需要进一步扩容了
                     dictExpand(o->ptr,len);
                 }
             }
 
-            /* This will also be called when the set was just converted
-             * to a regular hash table encoded set. */
+            /* This will also be called when the set was just converted to a regular hash table encoded set. */
+			//检测是否是整数集合类型
             if (o->encoding == OBJ_ENCODING_HT) {
+				//将元素添加到整数集合中
                 dictAdd((dict*)o->ptr,sdsele,NULL);
             } else {
+            	//释放对应的sds空间数据
                 sdsfree(sdsele);
             }
         }
@@ -1992,7 +2016,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
         sds field, value;
 
         len = rdbLoadLen(rdb, NULL);
-        if (len == RDB_LENERR) return NULL;
+        if (len == RDB_LENERR) 
+			return NULL;
 
         o = createHashObject();
 
@@ -2057,23 +2082,21 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
 				return NULL;
             quicklistAppendZiplist(o->ptr, zl);
         }
-    } else if (rdbtype == RDB_TYPE_HASH_ZIPMAP  ||
-               rdbtype == RDB_TYPE_LIST_ZIPLIST ||
-               rdbtype == RDB_TYPE_SET_INTSET   ||
-               rdbtype == RDB_TYPE_ZSET_ZIPLIST ||
-               rdbtype == RDB_TYPE_HASH_ZIPLIST) {
-        unsigned char *encoded = rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,NULL);
+    } else if (rdbtype == RDB_TYPE_HASH_ZIPMAP  || rdbtype == RDB_TYPE_LIST_ZIPLIST || rdbtype == RDB_TYPE_SET_INTSET || rdbtype == RDB_TYPE_ZSET_ZIPLIST || rdbtype == RDB_TYPE_HASH_ZIPLIST) {
+		//此处统一处理连续空间的值对象的操作
+		//加载对应的连续空间的数据为字符串数据
+		unsigned char *encoded = rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,NULL);
+		//检测加载数据是否成功
         if (encoded == NULL) 
 			return NULL;
+		//创建对应的值对象
         o = createObject(OBJ_STRING,encoded); /* Obj type fixed below. */
 
-        /* Fix the object encoding, and make sure to convert the encoded
-         * data type into the base type if accordingly to the current
-         * configuration there are too many elements in the encoded data
-         * type. Note that we only check the length and not max element
-         * size as this is an O(N) scan. Eventually everything will get
-         * converted. */
-        switch(rdbtype) {
+        /* Fix the object encoding, and make sure to convert the encoded data type into the base type if accordingly to the current
+         * configuration there are too many elements in the encoded data type. Note that we only check the length and not max element
+         * size as this is an O(N) scan. Eventually everything will get converted. */
+		//进一步根据类型来初始化值对象的编码属性信息
+		switch(rdbtype) {
             case RDB_TYPE_HASH_ZIPMAP:
                 /* Convert to ziplist encoded hash. This must be deprecated when loading dumps created by Redis 2.4 gets deprecated. */
                 {
@@ -2101,26 +2124,41 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
                 }
                 break;
             case RDB_TYPE_LIST_ZIPLIST:
+				//设置为列表值对象
                 o->type = OBJ_LIST;
+				//设置编码方式是压缩列表格式
                 o->encoding = OBJ_ENCODING_ZIPLIST;
+				//触发转换成对应的QUICKLIST编码方式的列表值对象
                 listTypeConvert(o,OBJ_ENCODING_QUICKLIST);
                 break;
             case RDB_TYPE_SET_INTSET:
+				//设置为集合值对象
                 o->type = OBJ_SET;
+				//设置编码方式为整数集合
                 o->encoding = OBJ_ENCODING_INTSET;
+				//检测元素数量是否超过了转换的门限
                 if (intsetLen(o->ptr) > server.set_max_intset_entries)
+					//将整数编码方式转换成字典编码方式
                     setTypeConvert(o,OBJ_ENCODING_HT);
                 break;
             case RDB_TYPE_ZSET_ZIPLIST:
+				//设置为有序集合值对象
                 o->type = OBJ_ZSET;
+				//设置实现的编码方式
                 o->encoding = OBJ_ENCODING_ZIPLIST;
+				//检测是否超过了转换的门限值
                 if (zsetLength(o) > server.zset_max_ziplist_entries)
+					//将其转换成快表方式的有序集合
                     zsetConvert(o,OBJ_ENCODING_SKIPLIST);
                 break;
             case RDB_TYPE_HASH_ZIPLIST:
+				//设置为Hash值对象
                 o->type = OBJ_HASH;
+				//设置编码方式
                 o->encoding = OBJ_ENCODING_ZIPLIST;
+				//检测是否超过了门限值
                 if (hashTypeLength(o) > server.hash_max_ziplist_entries)
+					//转换成对应的字典方式的Hash值对象
                     hashTypeConvert(o, OBJ_ENCODING_HT);
                 break;
             default:
@@ -2200,8 +2238,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
                                             "loading stream consumer group");
             }
 
-            /* Now that we loaded our global PEL, we need to load the
-             * consumers and their local PELs. */
+            /* Now that we loaded our global PEL, we need to load the consumers and their local PELs. */
             size_t consumers_num = rdbLoadLen(rdb,NULL);
             while(consumers_num--) {
                 sds cname = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL);
@@ -2277,6 +2314,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
     } else {
         rdbExitReportCorruptRDB("Unknown RDB encoding type %d",rdbtype);
     }
+	//最终返回对应的值对象
     return o;
 }
 
@@ -2475,7 +2513,8 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
 			//下面是分析对应的辅助信息的处理流程
             if (((char*)auxkey->ptr)[0] == '%') {
                 /* All the fields with a name staring with '%' are considered information fields and are logged at startup with a log level of NOTICE. */
-                serverLog(LL_NOTICE,"RDB '%s': %s", (char*)auxkey->ptr, (char*)auxval->ptr);
+				//键对象的第一个字符是% 那么对应的都是日志相关的 即写入对应的日志信息
+				serverLog(LL_NOTICE,"RDB '%s': %s", (char*)auxkey->ptr, (char*)auxval->ptr);
             } else if (!strcasecmp(auxkey->ptr,"repl-stream-db")) {
                 if (rsi) 
 					rsi->repl_stream_db = atoi(auxval->ptr);
@@ -2489,6 +2528,7 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
 					rsi->repl_offset = strtoll(auxval->ptr,NULL,10);
             } else if (!strcasecmp(auxkey->ptr,"lua")) {
                 /* Load the script back in memory. */
+				//将对应的lua脚本添加到redis服务中 创建对应的lua处理函数
                 if (luaCreateFunction(NULL,server.lua,auxval) == NULL) {
                     rdbExitReportCorruptRDB(
                         "Can't load Lua script from RDB file! "
@@ -2496,6 +2536,7 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
                 }
             } else {
                 /* We ignore fields we don't understand, as by AUX field contract. */
+				//其他类型为暂时不能识别的类型
                 serverLog(LL_DEBUG,"Unrecognized RDB AUX field: '%s'", (char*)auxkey->ptr);
             }
 
@@ -2505,7 +2546,8 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
             continue; /* Read type again. */
         } else if (type == RDB_OPCODE_MODULE_AUX) {
             /* Load module data that is not related to the Redis key space. Such data can be potentially be stored both before and after the RDB keys-values section. */
-            uint64_t moduleid = rdbLoadLen(rdb,NULL);
+			//处理模块相关的参数数据
+			uint64_t moduleid = rdbLoadLen(rdb,NULL);
             int when_opcode = rdbLoadLen(rdb,NULL);
             int when = rdbLoadLen(rdb,NULL);
             if (when_opcode != RDB_MODULE_OPCODE_UINT)
@@ -2552,30 +2594,41 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
             }
         }
 
+		/* 通过上面的分析可以知道 只要走过了前面的那些标识 剩下的就是走 获取键对象 获取值对象的操作处理了 */
         /* Read key */
+		//注意能够到达这个地方 说明读取到的标识不是上面的标识 而是值对象相关的标识 即键值对方面的信息
+		//读取对应的键对象 字符串格式的数据 最后转换成对应的字符串对象格式
         if ((key = rdbLoadStringObject(rdb)) == NULL) 
 			goto eoferr;
         /* Read value */
+		//根据标识获取值对象数据 此处是解析的核心部分 完成对值对象的数据加载处理
         if ((val = rdbLoadObject(type,rdb,key)) == NULL) 
 			goto eoferr;
         /* Check if the key already expired. This function is used when loading an RDB file from disk, either at startup, or when an RDB was
          * received from the master. In the latter case, the master is responsible for key expiry. If we would expire keys here, the
          * snapshot taken by the master may not be reflected on the slave. */
-        if (server.masterhost == NULL && !loading_aof && expiretime != -1 && expiretime < now) {
+		//如果当前环境不是从节点，且该键设置了过期时间，已经过期
+		if (server.masterhost == NULL && !loading_aof && expiretime != -1 && expiretime < now) {
+			//过期了 就直接释放对应的键对象和值对象
             decrRefCount(key);
             decrRefCount(val);
         } else {
             /* Add the new object in the hash table */
+			//将对应的键值对添加到数据库字典中
             dbAdd(db,key,val);
 
             /* Set the expire time if needed */
+			//检测是否有对应的过期时间值
             if (expiretime != -1) 
+				//给对应的键对象设置过期时间
 				setExpire(NULL,db,key,expiretime);
             
             /* Set usage information (for eviction). */
+			//设置对应的值对象对应的lru或者lfu信息
             objectSetLRUOrLFU(val,lfu_freq,lru_idle,lru_clock);
 
             /* Decrement the key refcount since dbAdd() will take its own reference. */
+			//注意此处只是进行键对象的引用计数了 因为键对象直接用的是其内部的sds结构 而值对象直接就是对应的值对象
             decrRefCount(key);
         }
 

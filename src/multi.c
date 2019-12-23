@@ -27,19 +27,32 @@ void freeClientMultiState(client *c) {
 }
 
 /* Add a new command into the MULTI commands queue */
+/* 处于事物过程中将对应的redis命令添加到事物命令队列中 */
 void queueMultiCommand(client *c) {
+	//用于记录待插入命令的指向
     multiCmd *mc;
     int j;
 
+	//重新进行命令队列的空间分配操作处理 即进行容纳新的命令
     c->mstate.commands = zrealloc(c->mstate.commands,sizeof(multiCmd)*(c->mstate.count+1));
-    mc = c->mstate.commands+c->mstate.count;
+	//指向待待插入命令的存储位置
+    mc = c->mstate.commands + c->mstate.count;
+	//记录对应的命令
     mc->cmd = c->cmd;
+	//记录对应的命令参数个数
     mc->argc = c->argc;
+	//开辟对应的空间用于存储对应的命令参数字符串对象
     mc->argv = zmalloc(sizeof(robj*)*c->argc);
+	//将本次的命令数据存储到命令队列中
     memcpy(mc->argv,c->argv,sizeof(robj*)*c->argc);
+
+	//进行命令参数字符串对象的引用计数增加处理 因为命令参数对象要存储到队列中了 在外部会进行释放引用计数处理 所以此处需要增加引用计数 防止在外部进行空间的释放
     for (j = 0; j < c->argc; j++)
+		//增加对应的引用计数
         incrRefCount(mc->argv[j]);
+	//增加命令队列中命令的数量值
     c->mstate.count++;
+	//存储命令客户端的状态参数
     c->mstate.cmd_flags |= c->cmd->flags;
 }
 
@@ -74,11 +87,9 @@ void discardCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-/* Send a MULTI command to all the slaves and AOF file. Check the execCommand
- * implementation for more information. */
+/* Send a MULTI command to all the slaves and AOF file. Check the execCommand implementation for more information. */
 void execCommandPropagateMulti(client *c) {
     robj *multistring = createStringObject("MULTI",5);
-
     propagate(server.multiCommand,c->db->id,&multistring,1,PROPAGATE_AOF|PROPAGATE_REPL);
     decrRefCount(multistring);
 }
@@ -100,8 +111,7 @@ void execCommand(client *c) {
      * 1) Some WATCHed key was touched.
      * 2) There was a previous error while queueing commands.
      * A failed EXEC in the first case returns a multi bulk nil object
-     * (technically it is not an error but a special behavior), while
-     * in the second an EXECABORT error is returned. */
+     * (technically it is not an error but a special behavior), while in the second an EXECABORT error is returned. */
     if (c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC)) {
         addReply(c, c->flags & CLIENT_DIRTY_EXEC ? shared.execaborterr : shared.nullmultibulk);
         discardTransaction(c);
@@ -111,8 +121,7 @@ void execCommand(client *c) {
     /* If there are write commands inside the transaction, and this is a read
      * only slave, we want to send an error. This happens when the transaction
      * was initiated when the instance was a master or a writable replica and
-     * then the configuration changed (for example instance was turned into
-     * a replica). */
+     * then the configuration changed (for example instance was turned into a replica). */
     if (!server.loading && server.masterhost && server.repl_slave_ro && !(c->flags & CLIENT_MASTER) && c->mstate.cmd_flags & CMD_WRITE) {
         addReplyError(c,
             "Transaction contains write commands but instance "
@@ -159,11 +168,8 @@ void execCommand(client *c) {
     if (must_propagate) {
         int is_master = server.masterhost == NULL;
         server.dirty++;
-        /* If inside the MULTI/EXEC block this instance was suddenly
-         * switched from master to slave (using the SLAVEOF command), the
-         * initial MULTI was propagated into the replication backlog, but the
-         * rest was not. We need to make sure to at least terminate the
-         * backlog with the final EXEC. */
+        /* If inside the MULTI/EXEC block this instance was suddenly switched from master to slave (using the SLAVEOF command), the
+         * initial MULTI was propagated into the replication backlog, but the rest was not. We need to make sure to at least terminate the backlog with the final EXEC. */
         if (server.repl_backlog && was_master && !is_master) {
             char *execcmd = "*1\r\n$4\r\nEXEC\r\n";
             feedReplicationBacklog(execcmd,strlen(execcmd));
@@ -183,14 +189,11 @@ handle_monitor:
 /* ===================== WATCH (CAS alike for MULTI/EXEC) ===================
  *
  * The implementation uses a per-DB hash table mapping keys to list of clients
- * WATCHing those keys, so that given a key that is going to be modified
- * we can mark all the associated clients as dirty.
+ * WATCHing those keys, so that given a key that is going to be modified we can mark all the associated clients as dirty.
  *
- * Also every client contains a list of WATCHed keys so that's possible to
- * un-watch such keys when the client is freed or when UNWATCH is called. */
+ * Also every client contains a list of WATCHed keys so that's possible to un-watch such keys when the client is freed or when UNWATCH is called. */
 
-/* In the client->watched_keys list we need to use watchedKey structures
- * as in order to identify a key in Redis we need both the key name and the DB */
+/* In the client->watched_keys list we need to use watchedKey structures as in order to identify a key in Redis we need both the key name and the DB */
 typedef struct watchedKey {
     robj *key;
     redisDb *db;
@@ -231,7 +234,8 @@ void unwatchAllKeys(client *c) {
     listIter li;
     listNode *ln;
 
-    if (listLength(c->watched_keys) == 0) return;
+    if (listLength(c->watched_keys) == 0) 
+		return;
     listRewind(c->watched_keys,&li);
     while((ln = listNext(&li))) {
         list *clients;
@@ -258,7 +262,8 @@ void touchWatchedKey(redisDb *db, robj *key) {
     listIter li;
     listNode *ln;
 
-    if (dictSize(db->watched_keys) == 0) return;
+    if (dictSize(db->watched_keys) == 0) 
+		return;
     clients = dictFetchValue(db->watched_keys, key);
     if (!clients) return;
 
@@ -272,8 +277,7 @@ void touchWatchedKey(redisDb *db, robj *key) {
     }
 }
 
-/* On FLUSHDB or FLUSHALL all the watched keys that are present before the
- * flush but will be deleted as effect of the flushing operation should
+/* On FLUSHDB or FLUSHALL all the watched keys that are present before the flush but will be deleted as effect of the flushing operation should
  * be touched. "dbid" is the DB that's getting the flush. -1 if it is a FLUSHALL operation (all the DBs flushed). */
 void touchWatchedKeysOnFlush(int dbid) {
     listIter li1, li2;
@@ -287,8 +291,7 @@ void touchWatchedKeysOnFlush(int dbid) {
         while((ln = listNext(&li2))) {
             watchedKey *wk = listNodeValue(ln);
 
-            /* For every watched key matching the specified DB, if the
-             * key exists, mark the client as dirty, as the key will be removed. */
+            /* For every watched key matching the specified DB, if the key exists, mark the client as dirty, as the key will be removed. */
             if (dbid == -1 || wk->db->id == dbid) {
                 if (dictFind(wk->db->dict, wk->key->ptr) != NULL)
                     c->flags |= CLIENT_DIRTY_CAS;

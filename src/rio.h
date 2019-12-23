@@ -11,11 +11,11 @@
 #include "sds.h"
 
 struct _rio {
-    /* Backend functions.
-     * Since this functions do not tolerate short writes or reads the return value is simplified to: zero on error, non zero on complete success. */
+    /* Backend functions. Since this functions do not tolerate short writes or reads the return value is simplified to: zero on error, non zero on complete success. */
     size_t (*read)(struct _rio *, void *buf, size_t len);
     size_t (*write)(struct _rio *, const void *buf, size_t len);
     off_t (*tell)(struct _rio *);
+	
     int (*flush)(struct _rio *);
     /* The update_cksum method if not NULL is used to compute the checksum of all the data that was read or written so far. The method should be
      * designed so that can be called with the current checksum, and the buf and len fields pointing to the new block of data to add to the checksum computation. */
